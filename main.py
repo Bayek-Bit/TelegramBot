@@ -9,6 +9,9 @@ from config import settings
 #database
 import app.database as db
 
+#orders
+from app.order_handlers import order_router
+
 
 dp = Dispatcher()
 
@@ -30,6 +33,7 @@ async def main():
     bot = Bot(settings.GET_TOKEN["TOKEN"])
     # like skip_updates=True in earlier versions of aiogram
     await bot.delete_webhook(drop_pending_updates=True)
+    dp.include_router(order_router)
     
     # database
     await db.create_tables()
