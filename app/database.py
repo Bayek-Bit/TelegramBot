@@ -349,6 +349,86 @@ async def create_tables():
         
         await db.commit()
 
+class AdminDatabaseHandler:
+    def __init__(self, db_path="app/clients.db"):
+        self.db_path = db_path
+
+    async def create_product(self, name: str, description: str, price: float, available_until=None):
+        """Создание нового товара."""
+        async with aq.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO products (name, description, price, available_until)
+                VALUES (?, ?, ?, ?)
+                """,
+                (name, description, price, available_until)
+            )
+            await db.commit()
+
+    async def update_product(self, product_id: int, name: str = None, description: str = None, price: float = None, available_until=None):
+        """Обновление существующего товара."""
+        async with aq.connect(self.db_path) as db:
+            query = "UPDATE products SET "
+            params = []
+
+            if name is not None:
+                query += "name = ?, "
+                params.append(name)
+
+            if description is not None:
+                query += "description = ?, "
+                params.append(description)
+
+            if price is not None:
+                query += "price = ?, "
+                params.append(price)
+
+            if available_until is not None:
+                query += "available_until = ?, "
+                params.append(available_until)
+
+            query = query.rstrip(", ") + " WHERE id = ?"
+            params.append(product_id)
+
+            await db.execute(query, params)
+            await db.commit()
+
+    async def delete_product(self, product_id: int):
+        """Удаление товара."""
+        async with aq.connect(self.db_path) as db:
+            await db.execute(
+                """
+                DELETE FROM products
+                WHERE id = ?
+                """,
+                (product_id,)
+            )
+            await db.commit()
+
+    async def get_all_products(self):
+        """Получение списка всех товаров."""
+        async with aq.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, name, description, price, created_at, available_until, is_active
+                FROM products
+                ORDER BY created_at DESC
+                """
+            )
+            products = await cursor.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "description": row[2],
+                    "price": row[3],
+                    "created_at": row[4],
+                    "available_until": row[5],
+                    "is_active": row[6],
+                }
+                for row in products
+            ]
+
 # Пример использования логики клиента
 # if __name__ == "__main__":
 #     import asyncio
@@ -377,36 +457,57 @@ async def create_tables():
 #     asyncio.run(main())
 
 # Пример использования логики исполнителя
-if __name__ == "__main__":
-    import asyncio
+# if __name__ == "__main__":
+#     import asyncio
 
-    async def main():
-        async with aq.connect("app/clients.db") as db:
-            # Получение первого доступного исполнителя
-            cursor = await db.execute(
-                """
-                SELECT id FROM users
-                WHERE role_id = (SELECT id FROM roles WHERE name = 'executor')
-                AND is_available = TRUE
-                LIMIT 1
-                """
-            )
-            executor = await cursor.fetchone()
-            print(executor)
-        # executor_db = ExecutorDatabaseHandler()
+#     async def main():
+#         executor_db = ExecutorDatabaseHandler()
 
-        # # Пример автоматического назначения исполнителя
-        # assigned_executor = await executor_db.assign_executor_to_order(order_id=1)
-        # if assigned_executor:
-        #     print(f"Исполнитель с ID {assigned_executor} назначен на заказ.")
-        # else:
-        #     print("Нет доступных исполнителей.")
+#         # Пример автоматического назначения исполнителя
+#         assigned_executor = await executor_db.assign_executor_to_order(order_id=1)
+#         if assigned_executor:
+#             print(f"Исполнитель с ID {assigned_executor} назначен на заказ.")
+#         else:
+#             print("Нет доступных исполнителей.")
 
-        # Пример завершения заказа
-        # completed = await executor_db.mark_order_as_completed(order_id=1)
-        # if completed:
-        #     print("Заказ завершён, исполнитель освобождён.")
-        # else:
-        #     print("Не удалось завершить заказ.")
+#         # Пример завершения заказа
+#         completed = await executor_db.mark_order_as_completed(order_id=1)
+#         if completed:
+#             print("Заказ завершён, исполнитель освобождён.")
+#         else:
+#             print("Не удалось завершить заказ.")
 
-    asyncio.run(main())
+#     asyncio.run(main())
+
+# Пример использования логики администратора
+# if __name__ == "__main__":
+#     import asyncio
+
+#     async def main():
+#         admin_db = AdminDatabaseHandler()
+
+#         # Создание товара
+#         await admin_db.create_product(
+#             name="Пример товара",
+#             description="Описание примера товара",
+#             price=99.99,
+#             available_until="2025-12-31 23:59:59",
+#         )
+#         print("Товар создан.")
+
+#         # Обновление товара
+#         await admin_db.update_product(
+#             product_id=1,
+#             name="Обновлённый товар",
+#             price=109.99,
+#         )
+#         print("Товар обновлён.")
+
+#         # Получение списка товаров
+#         products = await admin_db.get_all_products()
+#         print("Список товаров:", products)
+
+#         # Удаление товара
+#         await admin_db.delete_product(product_id=1)
+#         print("Товар удалён.")
+#     asyncio.run(main())
