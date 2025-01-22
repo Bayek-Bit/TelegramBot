@@ -12,21 +12,17 @@ import app.database as db
 #orders
 from app.order_handlers import order_router
 
+#keyboards
+import app.keyboards as kb
+
 
 dp = Dispatcher()
 
 
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
-    """
-    This handler receives messages with `/start` command
-    """
-    # Most event objects have aliases for API methods that can be called in events' context
-    # For example if you want to answer to incoming message you can use `message.answer(...)` alias
-    # and the target chat will be passed to :ref:`aiogram.methods.send_message.SendMessage`
-    # method automatically or call API method directly via
-    # Bot instance: `bot.send_message(chat_id=message.chat.id, ...)`
-    await message.answer(f"Hello, {message.from_user.full_name}!")
+
+    await message.answer(f"Hello, {message.from_user.full_name}!", reply_markup=kb.main_kb)
 
 
 async def main():
@@ -37,6 +33,7 @@ async def main():
     
     # database
     await db.create_tables()
+    await db.add_categories_to_db()
 
     await dp.start_polling(bot)
 

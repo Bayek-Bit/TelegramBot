@@ -1,5 +1,10 @@
 import aiosqlite as aq
 
+# import logging
+
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
+
 class ClientDatabaseHandler:
     def __init__(self, db_path="app/clients.db"):
         self.db_path = db_path
@@ -56,6 +61,45 @@ class ClientDatabaseHandler:
             )
             await db.commit()
 
+    async def get_categories(self):
+        """Получение всех доступных категорий."""
+        async with aq.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, name
+                FROM categories
+                ORDER BY name ASC
+                """
+            )
+            categories = await cursor.fetchall()
+            return [{"category_id": row[0], "name": row[1]} for row in categories]
+        
+    async def get_products_by_category(self, category_id: int):
+        """Получение списка товаров из указанной категории."""
+        async with aq.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, name, description, price, available_until
+                FROM products
+                WHERE category_id = ? AND is_active = TRUE
+                AND (available_until IS NULL OR available_until > CURRENT_TIMESTAMP)
+                ORDER BY created_at DESC
+                """,
+                (category_id,)
+            )
+            products = await cursor.fetchall()
+            return [
+                {
+                    "product_id": row[0],
+                    "name": row[1],
+                    "description": row[2],
+                    "price": row[3],
+                    "available_until": row[4],
+                }
+                for row in products
+            ]
+
+    
     async def get_available_products(self):
         """Получение списка доступных товаров."""
         async with aq.connect(self.db_path) as db:
@@ -348,6 +392,29 @@ async def create_tables():
         """)
         
         await db.commit()
+
+async def add_categories_to_db():
+    async with aq.connect("app/clients.db") as db:
+        # Создание таблицы категорий
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(255) NOT NULL UNIQUE
+            )
+            """
+        )
+
+        # Добавление связи между товарами и категориями
+        await db.execute(
+            """
+            ALTER TABLE products
+            ADD COLUMN category_id INTEGER REFERENCES categories(id)
+            """
+        )
+
+        await db.commit()
+
 
 class AdminDatabaseHandler:
     def __init__(self, db_path="app/clients.db"):
