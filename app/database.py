@@ -9,6 +9,29 @@ class ClientDatabaseHandler:
     def __init__(self, db_path="app/clients.db"):
         self.db_path = db_path
 
+    async def get_client_info(self, telegram_id: int) -> dict:
+        """Получение информации о клиенте по Telegram ID."""
+        query = "SELECT id, telegram_id, role_id, email, created_at FROM users WHERE telegram_id = ?"
+        async with aq.connect(self.db_path) as db:
+            async with db.execute(query, (telegram_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "id": row[0],
+                        "telegram_id": row[1],
+                        "role_id": row[2],
+                        "email": row[3],
+                        "created_at": row[4]
+                    }
+                return None
+
+    async def add_new_client(self, telegram_id: int) -> None:
+            """Добавление нового клиента в базу данных."""
+            query = "INSERT INTO clients (telegram_id, role) VALUES (?, ?)"
+            async with aq.connect(self.db_path) as db:
+                await db.execute(query, (telegram_id, "client"))
+                await db.commit()
+    
     async def add_order(self, client_id: int, product_id: int):
         """Создание нового заказа для клиента."""
         async with aq.connect(self.db_path) as db:
