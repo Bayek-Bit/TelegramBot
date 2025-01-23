@@ -27,9 +27,9 @@ class ClientDatabaseHandler:
 
     async def add_new_client(self, telegram_id: int) -> None:
             """Добавление нового клиента в базу данных."""
-            query = "INSERT INTO clients (telegram_id, role) VALUES (?, ?)"
+            query = "INSERT INTO users (telegram_id, role_id) VALUES (?, ?)"
             async with aq.connect(self.db_path) as db:
-                await db.execute(query, (telegram_id, "client"))
+                await db.execute(query, (telegram_id, 2))
                 await db.commit()
     
     async def add_order(self, client_id: int, product_id: int):
@@ -122,7 +122,14 @@ class ClientDatabaseHandler:
                 for row in products
             ]
 
-    
+        async def get_products_by_ids(self, product_ids: list[int]) -> list[dict]:
+            """Получение информации о товарах по списку их ID."""
+            placeholders = ", ".join("?" for _ in product_ids)  # Создаем плейсхолдеры для всех ID
+            query = f"SELECT id, name, price FROM products WHERE id IN ({placeholders})"
+            async with self.db.execute(query, product_ids) as cursor:
+                rows = await cursor.fetchall()
+                return [{"id": row[0], "name": row[1], "price": row[2]} for row in rows]
+
     async def get_available_products(self):
         """Получение списка доступных товаров."""
         async with aq.connect(self.db_path) as db:
@@ -170,6 +177,17 @@ class ClientDatabaseHandler:
                     "created_at": order[6],
                 }
             return None
+        
+        async def create_order(self, user_id: int, product_ids: list[int]) -> int:
+            """Создание заказа в базе данных."""
+            product_ids_str = ",".join(map(str, product_ids))  # Сохраняем ID товаров в строковом виде
+            query = """
+            INSERT INTO orders (user_id, product_ids, created_at)
+            VALUES (?, ?, datetime('now'))
+            """
+            async with self.db.execute(query, (user_id, product_ids_str)) as cursor:
+                await self.db.commit()  # Сохраняем изменения
+                return cursor.lastrowid  # Получаем ID созданного заказа
 
 class ExecutorDatabaseHandler:
     def __init__(self, db_path="app/clients.db"):
