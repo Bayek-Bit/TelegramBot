@@ -9,7 +9,7 @@ from app.keyboards import create_categories_keyboard, create_products_keyboard
 from datetime import datetime
 # Русская локализация для datetime
 import locale
-locale.setlocale(locale.LC_ALL, "Russian")
+locale.setlocale(locale.LC_TIME, "Russian")
 
 order_router = Router()
 ClientHandler = ClientDatabaseHandler()
@@ -22,7 +22,7 @@ class ProductStates(StatesGroup):
 
 @order_router.message(F.text == "Посмотреть товары")
 async def show_categories(message: Message, state: FSMContext):
-    """Обработка команды 'Посмотреть товары'. Вывод доступных категорий."""
+    """Вывод доступных категорий."""
     categories = await ClientHandler.get_categories()
 
     if not categories:
