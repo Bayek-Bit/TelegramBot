@@ -1,4 +1,8 @@
+# TODO: Больше состояний для контроля действий пользователя, Возможность выбирать множество товаров одного и того же типа (Гемы 50 x2)
+
 import aiosqlite as aq
+
+import json
 
 # import logging
 
@@ -122,13 +126,16 @@ class ClientDatabaseHandler:
                 for row in products
             ]
 
-        async def get_products_by_ids(self, product_ids: list[int]) -> list[dict]:
-            """Получение информации о товарах по списку их ID."""
-            placeholders = ", ".join("?" for _ in product_ids)  # Создаем плейсхолдеры для всех ID
-            query = f"SELECT id, name, price FROM products WHERE id IN ({placeholders})"
-            async with self.db.execute(query, product_ids) as cursor:
+    async def get_products_by_ids(self, product_ids: list[int]) -> list[dict]:
+        """Получение информации о товарах по списку их ID."""
+        placeholders = ", ".join("?" for _ in product_ids)  # Создаем плейсхолдеры для всех ID
+        query = f"SELECT id, name, price FROM products WHERE id IN ({placeholders})"
+        
+        async with aq.connect(self.db_path) as db:  # Открываем подключение
+            async with db.execute(query, product_ids) as cursor:  # Выполняем запрос с плейсхолдерами
                 rows = await cursor.fetchall()
                 return [{"id": row[0], "name": row[1], "price": row[2]} for row in rows]
+
 
     async def get_available_products(self):
         """Получение списка доступных товаров."""
@@ -177,17 +184,20 @@ class ClientDatabaseHandler:
                     "created_at": order[6],
                 }
             return None
-        
-        async def create_order(self, user_id: int, product_ids: list[int]) -> int:
-            """Создание заказа в базе данных."""
-            product_ids_str = ",".join(map(str, product_ids))  # Сохраняем ID товаров в строковом виде
-            query = """
-            INSERT INTO orders (user_id, product_ids, created_at)
-            VALUES (?, ?, datetime('now'))
-            """
-            async with self.db.execute(query, (user_id, product_ids_str)) as cursor:
-                await self.db.commit()  # Сохраняем изменения
-                return cursor.lastrowid  # Получаем ID созданного заказа
+
+    async def create_order(self, user_id: int, product_ids: list[int]) -> int:
+        """Создание заказа в базе данных."""
+        product_ids_json = json.dumps(product_ids)  # Сохраняем ID товаров в формате JSON
+        query = """
+        INSERT INTO orders (client_id, product_ids, status, payment_status)
+        VALUES (?, ?, 'pending', 'waiting_for_payment')
+        """
+        async with aq.connect(self.db_path) as db:
+            async with db.execute(query, (user_id, product_ids_json)) as cursor:
+                await db.commit()  # Сохраняем изменения
+                return cursor.lastrowid  # Возвращаем ID созданного заказа
+
+
 
 class ExecutorDatabaseHandler:
     def __init__(self, db_path="app/clients.db"):
@@ -354,6 +364,86 @@ class ExecutorDatabaseHandler:
             )
             await db.commit()
 
+class AdminDatabaseHandler:
+    def __init__(self, db_path="app/clients.db"):
+        self.db_path = db_path
+
+    async def create_product(self, name: str, description: str, price: float, available_until=None):
+        """Создание нового товара."""
+        async with aq.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO products (name, description, price, available_until)
+                VALUES (?, ?, ?, ?)
+                """,
+                (name, description, price, available_until)
+            )
+            await db.commit()
+
+    async def update_product(self, product_id: int, name: str = None, description: str = None, price: float = None, available_until=None):
+        """Обновление существующего товара."""
+        async with aq.connect(self.db_path) as db:
+            query = "UPDATE products SET "
+            params = []
+
+            if name is not None:
+                query += "name = ?, "
+                params.append(name)
+
+            if description is not None:
+                query += "description = ?, "
+                params.append(description)
+
+            if price is not None:
+                query += "price = ?, "
+                params.append(price)
+
+            if available_until is not None:
+                query += "available_until = ?, "
+                params.append(available_until)
+
+            query = query.rstrip(", ") + " WHERE id = ?"
+            params.append(product_id)
+
+            await db.execute(query, params)
+            await db.commit()
+
+    async def delete_product(self, product_id: int):
+        """Удаление товара."""
+        async with aq.connect(self.db_path) as db:
+            await db.execute(
+                """
+                DELETE FROM products
+                WHERE id = ?
+                """,
+                (product_id,)
+            )
+            await db.commit()
+
+    async def get_all_products(self):
+        """Получение списка всех товаров."""
+        async with aq.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT id, name, description, price, created_at, available_until, is_active
+                FROM products
+                ORDER BY created_at DESC
+                """
+            )
+            products = await cursor.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "description": row[2],
+                    "price": row[3],
+                    "created_at": row[4],
+                    "available_until": row[5],
+                    "is_active": row[6],
+                }
+                for row in products
+            ]
+
 # ----Создание базы данных----
 async def create_tables():
     async with aq.connect("app/clients.db") as db:
@@ -392,12 +482,22 @@ async def create_tables():
             )
         """)
         
+        # Таблица категорий
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name VARCHAR(255) NOT NULL UNIQUE
+            )
+            """
+        )
+
         # Таблица заказов
         await db.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id INTEGER REFERENCES users(id),
-                product_id INTEGER REFERENCES products(id),
+                product_ids TEXT, -- Список ID товаров в виде строки (например, JSON или CSV)
                 status VARCHAR(50) DEFAULT 'pending',
                 payment_status VARCHAR(50) DEFAULT 'waiting_for_payment',
                 executor_id INTEGER REFERENCES users(id),
