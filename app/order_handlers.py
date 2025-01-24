@@ -71,8 +71,10 @@ async def handle_product_selection(callback_query: CallbackQuery, state: FSMCont
 
     # Получение текущего списка выбранных товаров
     user_data = await state.get_data()
-    selected_products = user_data.get("selected_products", [])
-    selected_products.append(product_id)  # Добавляем выбранный товар
+    selected_products = user_data.get("selected_products", {})  # Убедитесь, что это словарь
+    print(type(selected_products))
+    # Увеличиваем количество товара, если он уже был выбран
+    selected_products[product_id] = selected_products.get(product_id, 0) + 1
 
     # Сохраняем обновленный список
     await state.update_data(selected_products=selected_products)
@@ -80,25 +82,30 @@ async def handle_product_selection(callback_query: CallbackQuery, state: FSMCont
     await callback_query.answer("Товар добавлен в корзину!")
 
 
+
 @order_router.message(F.text == "Закончить выбор")
 async def confirm_order(message: Message, state: FSMContext):
     """Обработка завершения выбора товаров и вывод заказа для подтверждения."""
     user_data = await state.get_data()
-    selected_products = user_data.get("selected_products", [])
+    selected_products = user_data.get("selected_products", {})
 
     if not selected_products:
         await message.answer("Вы не выбрали ни одного товара.")
         return
 
     # Получение информации о выбранных товарах
-    products = await ClientHandler.get_products_by_ids(selected_products)
+    product_ids = list(selected_products.keys())
+    products = await ClientHandler.get_products_by_ids(product_ids)
 
     # Формируем текст заказа
     text = "Вы выбрали следующие товары:\n"
     total_price = 0
     for product in products:
-        text += f"\n- {product['name']} ({product['price']} ₽)"
-        total_price += product['price']
+        product_id = product['id']
+        quantity = selected_products[product_id]
+        item_total = product['price'] * quantity
+        text += f"\n- {product['name']} ({product['price']} ₽) x {quantity} = {item_total} ₽"
+        total_price += item_total
 
     text += f"\n\nИтоговая сумма: {total_price} ₽"
     text += "\n\nПодтвердить заказ?"
@@ -119,8 +126,13 @@ async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
     user_data = await state.get_data()
     selected_products = user_data.get("selected_products", [])
 
+    # Подготовка данных для базы (создаем список ID товаров с учетом их количества)
+    product_ids_with_count = []
+    for product_id, count in selected_products.items():
+        product_ids_with_count.extend([product_id] * count)
+
     # Создание заказа в базе данных
-    order_id = await ClientHandler.create_order(callback_query.from_user.id, selected_products)
+    order_id = await ClientHandler.create_order(callback_query.from_user.id, product_ids_with_count)
 
     await callback_query.message.answer(f"Ваш заказ №{order_id} успешно оформлен!")
     await state.clear()

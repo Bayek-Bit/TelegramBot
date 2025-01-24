@@ -478,7 +478,8 @@ async def create_tables():
                 price NUMERIC(10, 2) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active BOOLEAN DEFAULT TRUE,
-                available_until TIMESTAMP -- Срок, до которого товар доступен
+                available_until TIMESTAMP, -- Срок, до которого товар доступен
+                category_id INTEGER REFERENCES categories(id) -- Категория товара
             )
         """)
         
