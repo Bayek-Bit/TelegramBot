@@ -1,4 +1,4 @@
-# TODO: Больше состояний для контроля действий пользователя, Возможность выбирать множество товаров одного и того же типа (Гемы 50 x2)
+# TODO: Больше состояний для контроля действий пользователя
 
 import aiosqlite as aq
 
@@ -48,6 +48,7 @@ class ClientDatabaseHandler:
             )
             await db.commit()
 
+
     async def get_client_orders(self, client_id: int):
         """Получение всех заказов клиента."""
         async with aq.connect(self.db_path) as db:
@@ -75,16 +76,16 @@ class ClientDatabaseHandler:
                 for row in orders
             ]
 
-    async def cancel_order(self, order_id: int, client_id: int):
+    async def cancel_order(self, order_id: int):
         """Отмена заказа клиента."""
         async with aq.connect(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE orders
                 SET status = 'cancelled'
-                WHERE id = ? AND client_id = ? AND status = 'pending'
+                WHERE id = ? AND status = 'pending'
                 """,
-                (order_id, client_id)
+                (order_id,)
             )
             await db.commit()
 
@@ -160,30 +161,67 @@ class ClientDatabaseHandler:
                 for row in products
             ]
 
-    async def get_order_details(self, order_id: int, client_id: int):
+
+    async def get_order_details(self, order_id: int): 
         """Получение деталей заказа клиента."""
         async with aq.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                SELECT o.id, p.name, p.description, p.price, o.status, o.payment_status, o.created_at
+                SELECT o.id, o.product_ids, o.status, o.payment_status, o.created_at
                 FROM orders o
-                JOIN products p ON o.product_id = p.id
-                WHERE o.id = ? AND o.client_id = ?
+                WHERE o.id = ?
                 """,
-                (order_id, client_id)
+                (order_id,)
             )
             order = await cursor.fetchone()
+            
             if order:
+                # Разбираем список product_ids (например, из JSON)
+                product_ids = json.loads(order[1])  # product_ids хранится как строка JSON
+                product_details = []
+
+                # Извлекаем детали товаров
+                for product_id in product_ids:
+                    cursor = await db.execute(
+                        """
+                        SELECT p.name, p.description, p.price
+                        FROM products p
+                        WHERE p.id = ?
+                        """,
+                        (product_id,)
+                    )
+                    product = await cursor.fetchone()
+                    if product:
+                        product_details.append({
+                            "product_name": product[0],
+                            "product_description": product[1],
+                            "price": product[2]
+                        })
+
                 return {
                     "order_id": order[0],
-                    "product_name": order[1],
-                    "product_description": order[2],
-                    "price": order[3],
-                    "status": order[4],
-                    "payment_status": order[5],
-                    "created_at": order[6],
+                    "products": product_details,
+                    "status": order[2],
+                    "payment_status": order[3],
+                    "created_at": order[4],
                 }
             return None
+        
+    async def get_order_payment_status(self, order_id: int):
+        """Получение статуса оплаты заказа клиента."""
+        async with aq.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT orders.payment_status
+                FROM orders
+                WHERE orders.id = ?
+                """,
+                (order_id,)
+            )
+            result = await cursor.fetchone()
+            payment_status = result[0] if result else None  # Handle None if no result is returned
+
+            return payment_status
 
     async def create_order(self, user_id: int, product_ids: list[int]) -> int:
         """Создание заказа в базе данных."""
@@ -720,3 +758,14 @@ class AdminDatabaseHandler:
 #         await admin_db.delete_product(product_id=1)
 #         print("Товар удалён.")
 #     asyncio.run(main())
+
+# Получение статуса оплаты заказа
+if __name__ == "__main__":
+    import asyncio
+
+    clienthr = ClientDatabaseHandler()
+
+    async def main():
+        print(await clienthr.get_order_payment_status(order_id=20))
+    
+    asyncio.run(main())

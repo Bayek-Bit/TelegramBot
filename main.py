@@ -6,7 +6,10 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+
+#debug
+from test import debug_router
 
 from config import settings
 
@@ -35,7 +38,9 @@ async def command_start_handler(message: Message, state: FSMContext) -> None:
 
     if client_info:
         # Если пользователь уже существует
-        await message.answer("Вы уже зарегистрированы в системе. Добро пожаловать!")
+        keyboard_builder = InlineKeyboardBuilder()
+        keyboard_builder.button(text="Посмотреть товары", callback_data="show_products")
+        await message.answer("Привет 🖤\n\nЗдесь ты можешь быстро закинуть донат в свою любимую игру.", reply_markup=keyboard_builder.as_markup(resize_keyboard=True))
     else:
         # Если пользователь новый, создаем клавиатуру
         keyboard_builder = ReplyKeyboardBuilder()
@@ -63,7 +68,7 @@ async def agree_to_terms(message: Message, state: FSMContext):
     keyboard_builder.button(text="Посмотреть товары")
 
     await message.answer(
-        "Вы успешно зарегистрированы в системе как клиент. Добро пожаловать!",
+        "Вы успешно зарегистрированы в системе как клиент.\nДобро пожаловать!\nЕсли возникнут вопросы/проблемы с заказом, обращайтесь в поддержку(/help)",
         reply_markup=keyboard_builder.as_markup(resize_keyboard=True),
     )
     # Сбрасываем состояние
@@ -91,8 +96,9 @@ async def main():
     
     # Подключаем маршруты
     dp.include_router(order_router)
+    dp.include_router(debug_router)
 
-    # Создаем таблицы и обновляем базу данных
+    # Создаем таблицы
     await db.create_tables()
     
     # Запускаем polling
