@@ -2,6 +2,7 @@
 # 1. Добавить сводку по заказу после нажатия подтверждения, уверен ли и т.п.
 # 2. Добавить больше состояний для контроля пользователя:
 # например, во время состояния принятияоплаты пользователь не может пользоваться ботом
+# 3. Итоговая сумма прямо в сообщении с выбором товаров
 
 from aiogram import Router, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
@@ -9,7 +10,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from asyncio import sleep, create_task
 from datetime import datetime, timedelta
-import re
 
 from app.database import ClientDatabaseHandler, ExecutorDatabaseHandler
 from app.keyboards import create_categories_keyboard, create_products_keyboard
@@ -101,7 +101,7 @@ async def show_products_in_category(callback_query: CallbackQuery, state: FSMCon
     )
 
     await callback_query.message.edit_text(
-        "Товары в категории:",
+        "Товары в категории.\n\n🍁Важно: проверяйте наличие акции в магазине на своём аккаунте .",
         reply_markup=combined_keyboard
     )
 
@@ -113,12 +113,13 @@ async def show_products_in_category(callback_query: CallbackQuery, state: FSMCon
     await state.set_state(ProductStates.choosing_products)
     await callback_query.answer()
 
-
+# Сброс выбранных клиентом продуктов
 @order_router.callback_query(F.data == "reset_products")
 async def reset_selected_products(callback_query: CallbackQuery, state: FSMContext):
     """Обработка сброса выбранных товаров."""
     await state.update_data(selected_products={})
     await callback_query.answer("Выбранные товары сброшены.")
+
 
 @order_router.callback_query(F.data == "confirm_order")
 async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
