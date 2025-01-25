@@ -5,7 +5,15 @@
 # 3. Итоговая сумма прямо в сообщении с выбором товаров
 
 from aiogram import Router, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    ReplyKeyboardRemove,
+    CallbackQuery,
+    FSInputFile,
+    InputMediaPhoto
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from asyncio import sleep, create_task
@@ -34,10 +42,13 @@ class ProductStates(StatesGroup):
 @order_router.callback_query(F.data == "show_products")
 async def show_categories(callback_query: CallbackQuery, state: FSMContext):
     """Обработка команды 'Посмотреть товары'. Вывод доступных категорий."""
+    show_categories_photo = FSInputFile("app\\icons\\main_icon1.jfif")
+    error_photo = FSInputFile("app\\icons\\something_went_wrong.jfif")
+    
     categories = await ClientHandler.get_categories()
 
     if not categories:
-        await callback_query.message.edit_text("К сожалению, сейчас нет доступных категорий.")
+        await callback_query.message.edit_caption(InputMediaPhoto(media=error_photo, caption="К сожалению, сейчас нет доступных категорий."))
         await callback_query.answer()
         return
 
@@ -47,12 +58,14 @@ async def show_categories(callback_query: CallbackQuery, state: FSMContext):
     # Сохраняем категории в состоянии
     await state.update_data(categories={cat["name"]: cat["category_id"] for cat in categories})
 
-    await callback_query.message.edit_text("Выберите категорию:", reply_markup=categories_keyboard)
+    await callback_query.message.edit_media(InputMediaPhoto(media=show_categories_photo,
+                                                            caption="Выберите категорию:"),
+                                                            reply_markup=categories_keyboard)
     await state.set_state(ProductStates.choosing_category)
     await callback_query.answer()
 
 
-@order_router.callback_query(F.data.startswith("product_"))
+@order_router.callback_query(ProductStates.choosing_products, F.data.startswith("product_"))
 async def handle_product_selection(callback_query: CallbackQuery, state: FSMContext):
     """Обработка выбора товара пользователем."""
     product_id = int(callback_query.data.split("_")[1])
@@ -69,9 +82,12 @@ async def handle_product_selection(callback_query: CallbackQuery, state: FSMCont
 
     await callback_query.answer("Товар добавлен в корзину!")
 
+# @order_router.message(F.text == "reset_state")
+# async def reset_state(message: Message, state: FSMContext):
+#     await state.clear()
+#     await message.answer("Cancelled", reply_markup=ReplyKeyboardRemove())
 
-
-@order_router.callback_query(F.data.startswith("category_"))
+@order_router.callback_query(ProductStates.choosing_category, F.data.startswith("category_"))
 async def show_products_in_category(callback_query: CallbackQuery, state: FSMContext):
     """Обработка выбора категории и вывод товаров."""
     category_id = int(callback_query.data.split("_")[1])
@@ -84,6 +100,9 @@ async def show_products_in_category(callback_query: CallbackQuery, state: FSMCon
         await callback_query.answer()
         return
 
+    # Фото товаров
+    product_photo = FSInputFile("app\\icons\\bonny.jfif")
+    
     # Создаем клавиатуру с товарами
     keyboard = create_products_keyboard(products)
 
@@ -100,10 +119,11 @@ async def show_products_in_category(callback_query: CallbackQuery, state: FSMCon
         ]
     )
 
-    await callback_query.message.edit_text(
-        "Товары в категории.\n\n🍁Важно: проверяйте наличие акции в магазине на своём аккаунте .",
-        reply_markup=combined_keyboard
-    )
+    await callback_query.message.edit_media(
+            InputMediaPhoto(media=product_photo,
+                            caption="Товары в категории.\n\n🍁Важно: проверяйте наличие акции в магазине на своём аккаунте."),
+            reply_markup=combined_keyboard
+                )
 
     # Проверяем, есть ли уже список выбранных товаров в состоянии, если нет — инициализируем
     user_data = await state.get_data()
@@ -124,6 +144,8 @@ async def reset_selected_products(callback_query: CallbackQuery, state: FSMConte
 @order_router.callback_query(F.data == "confirm_order")
 async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
     """Обработка подтверждения заказа."""
+    payment_photo = FSInputFile("app\\icons\\payment.jfif")
+    
     user_data = await state.get_data()
     if not user_data["selected_products"]:
         await callback_query.answer()
@@ -152,7 +174,7 @@ async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
         "После оплаты отправьте сообщение с вашим ФИО (например: Иванов И.И. или Иванов Иван И.).\n\n"
         f"Время для оплаты: до {payment_deadline.strftime('%H:%M:%S')}."
     )
-    await callback_query.message.edit_text(text)
+    await callback_query.message.edit_media(InputMediaPhoto(media=payment_photo, caption=text))
     await state.set_state(ProductStates.waiting_for_payment)
 
     # Запускаем таймер для проверки оплаты
@@ -177,14 +199,16 @@ async def check_payment_timeout(order_id: int, payment_deadline: datetime, callb
         await state.clear()
 
 
-@order_router.message(F.text.regexp(r"^[А-ЯЁ][а-яё]+( [А-ЯЁ]\.?){1,2}$"))
+@order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+( [А-ЯЁ]\.?){1,2}$"))
 async def process_payment_confirmation(message: Message, state: FSMContext):
     """Обработка сообщения клиента с подтверждением оплаты."""
+    error_photo = FSInputFile("app\\icons\\something_went_wrong.jfif")
+    
     user_data = await state.get_data()
     order_id = user_data.get("order_id")
 
     if not order_id:
-        await message.answer("Нет активного заказа для подтверждения оплаты.")
+        await message.edit_media(InputMediaPhoto(media=error_photo, caption="Нет активного заказа для подтверждения оплаты."))
         return
 
     client_name = message.text.strip()
@@ -192,15 +216,17 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
     # Отправляем сообщение исполнителю
     executor_id = await ClientHandler.get_available_executor()
     if not executor_id:
-        await message.answer("К сожалению, сейчас нет доступных исполнителей. Попробуйте позже.")
+        await message.edit_media(InputMediaPhoto(media=error_photo, caption="К сожалению, сейчас нет доступных исполнителей. Попробуйте позже."))
         return
 
+    # Тут часть кода с хендлерами для исполнителя, это я допишу 26.01
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data=f"approve_payment_{order_id}")],
         [InlineKeyboardButton(text="❌ Отклонить оплату", callback_data=f"reject_payment_{order_id}")]
     ])
 
     # Назначение заказа для проверки оплаты, потом только принимает заказ
+    # ДОПИСАТЬ тут всё завтра.
     await message.answer(
         f"Оплата от клиента {client_name} поступила. Проверьте перевод и подтвердите, если всё в порядке.",
         reply_markup=keyboard
@@ -210,26 +236,32 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
 @order_router.callback_query(F.data.startswith("approve_payment_"))
 async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
     """Обработка подтверждения оплаты исполнителем."""
+    success_payment_photo = FSInputFile("app\\icons\\success.jfif")
+    
     order_id = int(callback_query.data.split("_")[1])
 
     # Подтверждаем оплату и назначаем заказ исполнителю
     await ExecutorDatabaseHandler.assign_executor_to_order(order_id=order_id)
-    await callback_query.message.edit_text("Оплата подтверждена. Заказ назначен исполнителю.")
+    await callback_query.message.edit_media(InputMediaPhoto(media=success_payment_photo, caption="Оплата подтверждена. Заказ назначен исполнителю."))
     await state.clear()
 
 
 @order_router.callback_query(F.data.startswith("reject_payment_"))
 async def reject_payment(callback_query: CallbackQuery, state: FSMContext):
     """Обработка отклонения оплаты исполнителем."""
+    error_photo = FSInputFile("app\\icons\something_went_wrong.jfif")
+    
     order_id = int(callback_query.data.split("_")[1])
 
     # Отменяем заказ
+    # часть с исполнителем, переписать
+    # в заказах есть executor_id, поэтому отправляй сообщение по id.
     await ClientHandler.cancel_order(order_id=order_id)
     await callback_query.message.edit_text(
         "Оплата отклонена. Клиенту отправлено сообщение о необходимости повторного оформления."
     )
     # Сообщение клиенту
-    await callback_query.message.answer(
-        "К сожалению, оплата была отклонена. Пожалуйста, обратитесь в поддержку или проверьте корректность оплаты и попробуйте ещё раз."
+    await callback_query.message.edit_media(
+        InputMediaPhoto(media=error_photo, caption="К сожалению, оплата была отклонена. Пожалуйста, обратитесь в поддержку или проверьте корректность оплаты и попробуйте ещё раз.")
     )
     await state.clear()

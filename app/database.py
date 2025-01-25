@@ -33,7 +33,7 @@ class ClientDatabaseHandler:
             """Добавление нового клиента в базу данных."""
             query = "INSERT INTO users (telegram_id, role_id) VALUES (?, ?)"
             async with aq.connect(self.db_path) as db:
-                await db.execute(query, (telegram_id, 2))
+                await db.execute(query, (telegram_id, 1))
                 await db.commit()
     
     async def add_order(self, client_id: int, product_id: int):

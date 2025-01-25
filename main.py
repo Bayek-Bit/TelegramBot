@@ -3,10 +3,10 @@ import logging
 import sys
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.types import Message, InputMediaPhoto, FSInputFile, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 #debug
 from test import debug_router
@@ -36,57 +36,35 @@ async def command_start_handler(message: Message, state: FSMContext) -> None:
     # Проверяем, существует ли пользователь в базе
     client_info = await ClientHandler.get_client_info(message.from_user.id)
 
+    # Изображения, которые будут отправлены при ответе
+    main_photo = FSInputFile("app\\icons\\main_icon.jfif")
+    new_client_photo = FSInputFile("app\\icons\\new_client.jfif")
+
     if client_info:
         # Если пользователь уже существует
         keyboard_builder = InlineKeyboardBuilder()
         keyboard_builder.button(text="Посмотреть товары", callback_data="show_products")
-        await message.answer("Привет 🖤\n\nЗдесь ты можешь быстро закинуть донат в свою любимую игру.", reply_markup=keyboard_builder.as_markup(resize_keyboard=True))
+        await message.answer_photo(main_photo, caption="Привет 🤍\n\nЗдесь ты можешь быстро закинуть гемчиков(и не только) на свой аккаунт.", reply_markup=keyboard_builder.as_markup(resize_keyboard=True))
     else:
         # Если пользователь новый, создаем клавиатуру
-        keyboard_builder = ReplyKeyboardBuilder()
-        keyboard_builder.button(text="Согласен")
-        keyboard_builder.button(text="Не согласен")
-        keyboard_builder.adjust(2)  # Две кнопки в строке
+        inline_kb_builder = InlineKeyboardBuilder()
+        inline_kb_builder.button(text="Хорошо", callback_data="agree")
 
-        await message.answer(
-            "Добро пожаловать! Для продолжения использования бота ваша почта и Telegram ID "
-            "будут храниться в базе данных. Вы согласны?",
-            reply_markup=keyboard_builder.as_markup(resize_keyboard=True),
-        )
-        # Устанавливаем состояние ожидания согласия
+        await message.answer_photo(photo=new_client_photo, caption="Добро пожаловать!\n\nБот будет передавать ваши данные(почту и код для входа) исполнителю и только ему.\nТак же и вы будете получать сообщения от исполнителя/поддержки только через бота.\n\nОтветы на некоторые вопросы по работе сервиса можно найти в FAQ(/faq).\n\nДоброго здравия от славянки 🤍", reply_markup=inline_kb_builder.as_markup())
         await state.set_state(RegistrationStates.waiting_for_agreement)
 
 
-@dp.message(RegistrationStates.waiting_for_agreement, F.text == "Согласен")
-async def agree_to_terms(message: Message, state: FSMContext):
+@dp.callback_query(RegistrationStates.waiting_for_agreement, F.data == "agree")
+async def agree_to_terms(callback_query: CallbackQuery, state: FSMContext):
     """Обработка согласия нового пользователя на регистрацию."""
+    main_photo = FSInputFile("app\\icons\\main_icon.jfif")
+    
     # Добавляем нового клиента в базу данных
-    await ClientHandler.add_new_client(message.from_user.id)
+    await ClientHandler.add_new_client(telegram_id=callback_query.message.from_user.id)
+    
+    await callback_query.message.edit_media(InputMediaPhoto(media=main_photo, caption="Вы успешно зарегистрированы в системе как клиент.\n\nЕсли возникнут проблемы с заказом, обращайтесь в поддержку(/help)"))
 
-    # Создаем клавиатуру для просмотра товаров
-    keyboard_builder = ReplyKeyboardBuilder()
-    keyboard_builder.button(text="Посмотреть товары")
-
-    await message.answer(
-        "Вы успешно зарегистрированы в системе как клиент.\nДобро пожаловать!\nЕсли возникнут вопросы/проблемы с заказом, обращайтесь в поддержку(/help)",
-        reply_markup=keyboard_builder.as_markup(resize_keyboard=True),
-    )
-    # Сбрасываем состояние
     await state.clear()
-
-
-@dp.message(RegistrationStates.waiting_for_agreement, F.text == "Не согласен")
-async def disagree_to_terms(message: Message, state: FSMContext):
-    """Обработка отказа пользователя на регистрацию."""
-    await message.answer("Вы не можете использовать бот без согласия на обработку данных.\n\nЕсли передумаете - перезапускайте бота при помощи '/start'")
-    # Сбрасываем состояние
-    await state.clear()
-
-
-@dp.message(RegistrationStates.waiting_for_agreement)
-async def invalid_input_in_registration(message: Message, state: FSMContext):
-    """Обработка некорректного ввода во время регистрации."""
-    await message.answer("Пожалуйста, выберите один из предложенных вариантов: Согласен или Не согласен.")
 
 
 async def main():
