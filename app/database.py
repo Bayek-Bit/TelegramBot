@@ -160,6 +160,32 @@ class ClientDatabaseHandler:
                 }
                 for row in products
             ]
+    # Хороший пример комментария работы функции
+    async def get_products_prices(self, product_ids: list[int]) -> dict[int, int]:
+        """
+        Получение цен для списка товаров по их ID.
+
+        Args:
+            product_ids (list[int]): Список идентификаторов товаров.
+
+        Returns:
+            dict[int, int]: Словарь, где ключ — ID товара, значение — его цена.
+        """
+        if not product_ids:
+            return {}
+
+        placeholders = ",".join("?" for _ in product_ids)  # Формируем плейсхолдеры для IN
+        query = f"""
+            SELECT id, price 
+            FROM products
+            WHERE id IN ({placeholders}) AND is_active = 1
+        """
+        async with aq.connect(self.db_path) as db:
+            cursor = await db.execute(query, product_ids)
+            rows = await cursor.fetchall()  # Получаем все строки результата
+
+        # Преобразуем результат в словарь {id: price}
+        return {row[0]: row[1] for row in rows}
 
 
     async def get_order_details(self, order_id: int): 
