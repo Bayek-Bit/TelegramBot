@@ -1,8 +1,7 @@
-# TODO:
-# 1. Добавить больше состояний для контроля пользователя:
-# Например, во время состояния принятия оплаты пользователь не может пользоваться ботом.
-# 2. Итоговая сумма прямо в сообщении с выбором товаров. Отображается всё время, если клиент выбирает категорию или товар. Изначально равна 0.
-# 3. Перенести любое взаимодействие с исполнителем в отдельный файл.
+from asyncio import create_task
+from datetime import datetime, timedelta
+import re
+import locale
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -15,23 +14,11 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from asyncio import create_task
-from datetime import datetime, timedelta
-import re
 
-# Хендлеры для базы данных
 from app.database import ClientDatabaseHandler
-# Создание клавиатур
 from app.keyboards import create_categories_keyboard, create_products_keyboard
-# Оплата
 from app.payment import check_payment_timeout
-# Общение с исполнителем
 from app.executor_handlers import handle_executor_interaction
-
-# Русская локализация для времени
-import locale
-locale.setlocale(locale.LC_TIME, "Russian")
-
 
 
 order_router = Router()
@@ -99,10 +86,6 @@ async def handle_product_selection(callback_query: CallbackQuery, state: FSMCont
 
     await callback_query.answer("Товар добавлен в корзину!")
 
-# @order_router.message(F.text == "reset_state")
-# async def reset_state(message: Message, state: FSMContext):
-#     await state.clear()
-#     await message.answer("Cancelled", reply_markup=ReplyKeyboardRemove())
 
 @order_router.callback_query(ProductStates.choosing_category, F.data.startswith("category_"))
 async def show_products_in_category(callback_query: CallbackQuery, state: FSMContext):
