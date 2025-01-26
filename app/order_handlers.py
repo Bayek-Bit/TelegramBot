@@ -17,6 +17,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from asyncio import create_task
 from datetime import datetime, timedelta
+import re
 
 # Хендлеры для базы данных
 from app.database import ClientDatabaseHandler
@@ -165,16 +166,24 @@ async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
     await callback_query.message.edit_media(
         InputMediaPhoto(media=payment_photo, caption=(
             f"Ваш заказ №{order_id} оформлен. Сумма: {total} руб.\n"
-            "Для оплаты переведите сумму на указанные реквизиты:\n"
+            "Для оплаты переведите указанную ботом сумму на эти реквизиты:\n"
             "Карта: 1234 5678 9012 3456\n"
             "Получатель: Иван Иванов\n"
-            f"Время для оплаты: до {payment_deadline.strftime('%H:%M:%S')}."
+            "Банк: ТестБанк\n"
+            f"Время для оплаты: до {payment_deadline.strftime('%H:%M:%S')}\n"
+            "После оплаты укажите Ф.И.О. отправителя. Пример: Иван Иванов И. или.\n"
+            "Ф.И.О. отправителя нужно исполнителю для подтверждения платежа."
         ))
     )
     await state.set_state(ProductStates.waiting_for_payment)
-    create_task(check_payment_timeout(order_id, payment_deadline, callback_query, state))
+    create_task(check_payment_timeout(order_id, payment_deadline, callback_query, state, ClientHandler))
 
-@order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+( [А-ЯЁ]\.?){1,2}$"))
+@order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ](?:[а-яё]+|\.))?$"))
 async def process_payment_confirmation(message: Message, state: FSMContext):
     """Обработка подтверждения оплаты."""
     await handle_executor_interaction(message, state)
+
+@order_router.message(ProductStates.waiting_for_payment)
+async def wrong_payment_confirmation_message(message: Message, state: FSMContext):
+    """Обработка неверного указания Ф.И.О. клиентом"""
+    await message.answer("Пожалуйста, в сообщении укажите только Ф.И.О. по примеру, приведённому в сообщении с реквизитами.")

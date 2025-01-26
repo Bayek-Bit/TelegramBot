@@ -7,8 +7,9 @@ from aiogram.fsm.state import StatesGroup, State
 executor_router = Router()
 
 
-async def handle_executor_interaction(message, state):
-    pass
+async def handle_executor_interaction(message: Message, state: FSMContext):
+    
+    print(message, state)
 
 # @order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+( [А-ЯЁ]\.?){1,2}$"))
 # async def process_payment_confirmation(message: Message, state: FSMContext):
