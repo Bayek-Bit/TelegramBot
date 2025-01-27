@@ -1,8 +1,3 @@
-from asyncio import create_task
-from datetime import datetime, timedelta
-import re
-import locale
-
 from aiogram import Router, F
 from aiogram.types import (
     Message,
@@ -14,17 +9,34 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from asyncio import create_task
+from datetime import datetime, timedelta
+import re
+import locale
 
+# Local Modules
 from app.database import ClientDatabaseHandler
 from app.keyboards import create_categories_keyboard, create_products_keyboard
 from app.payment import check_payment_timeout
 from app.executor_handlers import handle_executor_interaction
 
+# Set Russian locale for time formatting
+try:
+    locale.setlocale(locale.LC_TIME, "Russian")
+except locale.Error:
+    locale.setlocale(locale.LC_TIME, "C")
+
+# Constants for file paths
+ICONS_PATH = "app/icons/"
+SHOW_CATEGORIES_ICON = f"{ICONS_PATH}main_icon1.jfif"
+ERROR_ICON = f"{ICONS_PATH}something_went_wrong.jfif"
+PRODUCT_ICON = f"{ICONS_PATH}bonny.jfif"
+PAYMENT_ICON = f"{ICONS_PATH}payment.jfif"
 
 order_router = Router()
 ClientHandler = ClientDatabaseHandler()
 
-# Определяем состояния для выбора товаров и оформления заказа
+# Define states for product selection and order processing
 class ProductStates(StatesGroup):
     choosing_category = State()
     choosing_products = State()
@@ -32,7 +44,7 @@ class ProductStates(StatesGroup):
     waiting_for_payment = State()
 
 async def calculate_total(selected_products):
-    """Подсчёт итоговой суммы для всех выбранных товаров."""
+    """Calculate the total price for selected products."""
     if not selected_products:
         return 0
 
@@ -42,54 +54,71 @@ async def calculate_total(selected_products):
 
 @order_router.callback_query(F.data == "show_products")
 async def show_categories(callback_query: CallbackQuery, state: FSMContext):
-    """Обработка команды 'Посмотреть товары'. Вывод доступных категорий."""
-    show_categories_photo = FSInputFile("app\\icons\\main_icon1.jfif")
-    error_photo = FSInputFile("app\\icons\\something_went_wrong.jfif")
-    
+    """Handle 'View Products' command. Display available categories."""
     categories = await ClientHandler.get_categories()
     user_data = await state.get_data()
     selected_products = user_data.get("selected_products", {})
     total = await calculate_total(selected_products)
 
     if not categories:
-        await callback_query.message.edit_caption(InputMediaPhoto(media=error_photo, caption="К сожалению, сейчас нет доступных категорий."))
+        await callback_query.message.edit_media(
+            InputMediaPhoto(media=FSInputFile(ERROR_ICON), caption="К сожалению, сейчас нет доступных категорий.")
+        )
         await callback_query.answer()
         return
 
-    # Создаем клавиатуру с категориями
+    # Create categories keyboard
     categories_keyboard = create_categories_keyboard(categories)
 
-    # Сохраняем категории в состоянии
-    await state.update_data(categories={cat["name"]: cat["category_id"] for cat in categories})
+    # Update state with categories and selected products
+    await state.update_data({
+        "categories": {cat["name"]: cat["category_id"] for cat in categories},
+        "selected_products": selected_products
+    })
 
-    await callback_query.message.edit_media(InputMediaPhoto(media=show_categories_photo,
-                                                            caption=f"Выберите категорию.\n\n💎Итого: {total}р."),
-                                                            reply_markup=categories_keyboard)
+    await callback_query.message.edit_media(
+        InputMediaPhoto(
+            media=FSInputFile(SHOW_CATEGORIES_ICON),
+            caption=f"Выберите категорию.\n\n💎Итого: {total}р."
+        ),
+        reply_markup=categories_keyboard
+    )
     await state.set_state(ProductStates.choosing_category)
     await callback_query.answer()
 
-
 @order_router.callback_query(ProductStates.choosing_products, F.data.startswith("product_"))
 async def handle_product_selection(callback_query: CallbackQuery, state: FSMContext):
-    """Обработка выбора товара пользователем."""
+    """Handle product selection by the user."""
     product_id = int(callback_query.data.split("_")[1])
 
-    # Получение текущего списка выбранных товаров
     user_data = await state.get_data()
-    selected_products = user_data.get("selected_products", {})  # Убедитесь, что это словарь
+    selected_products = user_data.get("selected_products", {})
 
-    # Увеличиваем количество товара, если он уже был выбран
+    # Increment product count
     selected_products[product_id] = selected_products.get(product_id, 0) + 1
 
-    # Сохраняем обновленный список
-    await state.update_data(selected_products=selected_products)
+    # Update state with new selected products
+    await state.update_data({"selected_products": selected_products})
+
+    # Recalculate total and update the message
+    total = await calculate_total(selected_products)
+
+    # Retrieve the keyboard from the current message
+    current_keyboard = callback_query.message.reply_markup
+
+    await callback_query.message.edit_media(
+        InputMediaPhoto(
+            media=FSInputFile(PRODUCT_ICON),
+            caption=f"Товары в категории\n\n💎Итого: {total}р."
+        ),
+        reply_markup=current_keyboard
+    )
 
     await callback_query.answer("Товар добавлен в корзину!")
 
-
 @order_router.callback_query(ProductStates.choosing_category, F.data.startswith("category_"))
 async def show_products_in_category(callback_query: CallbackQuery, state: FSMContext):
-    """Обработка выбора категории и вывод товаров."""
+    """Handle category selection and display products."""
     category_id = int(callback_query.data.split("_")[1])
     products = await ClientHandler.get_products_by_category(category_id)
     user_data = await state.get_data()
@@ -101,7 +130,6 @@ async def show_products_in_category(callback_query: CallbackQuery, state: FSMCon
         await callback_query.answer()
         return
 
-    product_photo = FSInputFile("app\\icons\\bonny.jfif")
     keyboard = create_products_keyboard(products)
     combined_keyboard = InlineKeyboardMarkup(inline_keyboard=
         keyboard.inline_keyboard + [
@@ -113,60 +141,84 @@ async def show_products_in_category(callback_query: CallbackQuery, state: FSMCon
         ]
     )
 
+    await state.update_data({"selected_products": selected_products})
+
     await callback_query.message.edit_media(
-        InputMediaPhoto(media=product_photo, caption=f"Товары в категории\n\n💎Итого: {total}р."),
+        InputMediaPhoto(
+            media=FSInputFile(PRODUCT_ICON),
+            caption=f"Товары в категории\n\n💎Итого: {total}р."
+        ),
         reply_markup=combined_keyboard
     )
-    if "selected_products" not in user_data:
-        await state.update_data(selected_products={})
-
     await state.set_state(ProductStates.choosing_products)
     await callback_query.answer()
 
 @order_router.callback_query(F.data == "reset_products")
 async def reset_selected_products(callback_query: CallbackQuery, state: FSMContext):
-    """Сброс выбранных товаров."""
-    await state.update_data(selected_products={})
-    await callback_query.answer("Выбранные товары сброшены.")
+    """Reset selected products."""
+    await state.update_data({"selected_products": {}})
 
+    # Updating total sum to 0
+    await callback_query.message.edit_media(
+        InputMediaPhoto(
+            media=FSInputFile(PRODUCT_ICON),
+            caption=f"Товары в категории\n\n💎Итого: 0р."
+        ),
+        reply_markup=callback_query.message.reply_markup
+    )
 
 @order_router.callback_query(F.data == "confirm_order")
 async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
-    """Обработка подтверждения заказа."""
-    payment_photo = FSInputFile("app\\icons\\payment.jfif")
+    """Handle order confirmation."""
     user_data = await state.get_data()
     selected_products = user_data.get("selected_products", {})
-    
+
     if not selected_products:
         await callback_query.answer("Корзина пуста!")
         return
-    
+
     total = await calculate_total(selected_products)
     order_id = await ClientHandler.create_order(callback_query.from_user.id, list(selected_products.keys()))
     payment_deadline = datetime.now() + timedelta(minutes=15)
-    
-    await state.update_data(order_id=order_id, payment_deadline=payment_deadline)
+
+    await state.update_data({
+        "order_id": order_id,
+        "payment_deadline": payment_deadline
+    })
+
     await callback_query.message.edit_media(
-        InputMediaPhoto(media=payment_photo, caption=(
-            f"Ваш заказ №{order_id} оформлен. Сумма: {total} руб.\n"
-            "Для оплаты переведите указанную ботом сумму на эти реквизиты:\n"
-            "Карта: 1234 5678 9012 3456\n"
-            "Получатель: Иван Иванов\n"
-            "Банк: ТестБанк\n"
-            f"Время для оплаты: до {payment_deadline.strftime('%H:%M:%S')}\n"
-            "После оплаты укажите Ф.И.О. отправителя. Пример: Иван Иванов И. или.\n"
-            "Ф.И.О. отправителя нужно исполнителю для подтверждения платежа."
-        ))
+        InputMediaPhoto(
+            media=FSInputFile(PAYMENT_ICON),
+            caption=(
+                f"Ваш заказ №{order_id} оформлен. Сумма: {total} руб.\n"
+                "Для оплаты переведите указанную ботом сумму на эти реквизиты:\n"
+                "Карта: 1234 5678 9012 3456\n"
+                "Получатель: Иван Иванов\n"
+                "Банк: ТестБанк\n"
+                f"Время для оплаты: до {payment_deadline.strftime('%H:%M:%S')}\n"
+                "После оплаты укажите Ф.И.О. отправителя. Пример: Иван Иванов И. или Иванов Иван Иванович\n"
+                "Ф.И.О. отправителя нужно исполнителю для подтверждения платежа."
+            )
+        )
     )
     await state.set_state(ProductStates.waiting_for_payment)
     create_task(check_payment_timeout(order_id, payment_deadline, callback_query, state, ClientHandler))
 
 @order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ](?:[а-яё]+|\.))?$"))
 async def process_payment_confirmation(message: Message, state: FSMContext):
-    """Обработка подтверждения оплаты."""
-    await handle_executor_interaction(message, state)
+    """Handle payment confirmation."""
+    user_data = await state.get_data()
+    order_id = user_data.get("order_id")
+
+    if not order_id:
+        await state.clear()
+        await message.answer("Произошла ошибка. Заказ не найден.\n\nПопробуйте оформить заказ ещё раз или обратитесь в поддержку.")
+        return
+
+    # Pass order_id to handle_executor_interaction
+    await handle_executor_interaction(message, state, order_id=order_id)
 
 @order_router.message(ProductStates.waiting_for_payment)
 async def wrong_payment_confirmation_message(message: Message, state: FSMContext):
-    """Обработка неверного указания Ф.И.О. клиентом"""
+    """Handle incorrect payment confirmation format."""
     await message.answer("Пожалуйста, в сообщении укажите только Ф.И.О. по примеру, приведённому в сообщении с реквизитами.")
