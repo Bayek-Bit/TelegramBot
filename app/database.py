@@ -130,12 +130,12 @@ class ClientDatabaseHandler:
     async def get_products_by_ids(self, product_ids: list[int]) -> list[dict]:
         """Получение информации о товарах по списку их ID."""
         placeholders = ", ".join("?" for _ in product_ids)  # Создаем плейсхолдеры для всех ID
-        query = f"SELECT id, name, price FROM products WHERE id IN ({placeholders})"
+        query = f"SELECT id, name, description, price FROM products WHERE id IN ({placeholders})"
         
         async with aq.connect(self.db_path) as db:  # Открываем подключение
             async with db.execute(query, product_ids) as cursor:  # Выполняем запрос с плейсхолдерами
                 rows = await cursor.fetchall()
-                return [{"id": row[0], "name": row[1], "price": row[2]} for row in rows]
+                return [{"id": row[0], "name": row[1], "description":row[2], "price": row[3]} for row in rows]
 
 
     async def get_available_products(self):
@@ -272,26 +272,13 @@ class ExecutorDatabaseHandler:
         async with aq.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                SELECT o.id, o.client_id, p.name, p.description, p.price, o.status, o.created_at
+                SELECT o.id, o.client_id, o.product_ids, o.status, o.created_at
                 FROM orders o
-                JOIN products p ON o.product_id = p.id
                 WHERE o.status = 'pending'
                 ORDER BY o.created_at ASC
                 """
             )
             orders = await cursor.fetchall()
-            return [
-                {
-                    "order_id": row[0],
-                    "client_id": row[1],
-                    "product_name": row[2],
-                    "product_description": row[3],
-                    "price": row[4],
-                    "status": row[5],
-                    "created_at": row[6],
-                }
-                for row in orders
-            ]
 
     async def assign_executor_to_order(self, order_id: int):
         """Автоматическое назначение свободного исполнителя на заказ."""
@@ -306,7 +293,6 @@ class ExecutorDatabaseHandler:
                 """
             )
             executor = await cursor.fetchone()
-            print(executor)
             if executor:
                 executor_id = executor[0]
 
@@ -730,27 +716,28 @@ class AdminDatabaseHandler:
 #     asyncio.run(main())
 
 # Пример использования логики исполнителя
-# if __name__ == "__main__":
-#     import asyncio
+if __name__ == "__main__":
+    import asyncio
 
-#     async def main():
-#         executor_db = ExecutorDatabaseHandler()
+    async def main():
+        clienthlr = ClientDatabaseHandler()
+        a = await clienthlr.get_order_details(20)
+        print(a)
+        # # Пример автоматического назначения исполнителя
+        # assigned_executor = await executor_db.assign_executor_to_order(order_id=1)
+        # if assigned_executor:
+        #     print(f"Исполнитель с ID {assigned_executor} назначен на заказ.")
+        # else:
+        #     print("Нет доступных исполнителей.")
 
-#         # Пример автоматического назначения исполнителя
-#         assigned_executor = await executor_db.assign_executor_to_order(order_id=1)
-#         if assigned_executor:
-#             print(f"Исполнитель с ID {assigned_executor} назначен на заказ.")
-#         else:
-#             print("Нет доступных исполнителей.")
+        # # Пример завершения заказа
+        # completed = await executor_db.mark_order_as_completed(order_id=1)
+        # if completed:
+        #     print("Заказ завершён, исполнитель освобождён.")
+        # else:
+        #     print("Не удалось завершить заказ.")
 
-#         # Пример завершения заказа
-#         completed = await executor_db.mark_order_as_completed(order_id=1)
-#         if completed:
-#             print("Заказ завершён, исполнитель освобождён.")
-#         else:
-#             print("Не удалось завершить заказ.")
-
-#     asyncio.run(main())
+    asyncio.run(main())
 
 # Пример использования логики администратора
 # if __name__ == "__main__":
@@ -784,14 +771,3 @@ class AdminDatabaseHandler:
 #         await admin_db.delete_product(product_id=1)
 #         print("Товар удалён.")
 #     asyncio.run(main())
-
-# Получение статуса оплаты заказа
-if __name__ == "__main__":
-    import asyncio
-
-    clienthr = ClientDatabaseHandler()
-
-    async def main():
-        print(await clienthr.get_order_payment_status(order_id=20))
-    
-    asyncio.run(main())

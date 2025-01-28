@@ -34,7 +34,7 @@ class RegistrationStates(StatesGroup):
 async def command_start_handler(message: Message, state: FSMContext) -> None:
     """Обработка команды /start."""
     # Проверяем, существует ли пользователь в базе
-    client_info = await ClientHandler.get_client_info(message.from_user.id)
+    client_info = await ClientHandler.get_client_info(telegram_id=message.from_user.id)
 
     # Изображения, которые будут отправлены при ответе
     main_photo = FSInputFile("app\\icons\\main_icon.jfif")
@@ -62,7 +62,10 @@ async def agree_to_terms(callback_query: CallbackQuery, state: FSMContext):
     # Добавляем нового клиента в базу данных
     await ClientHandler.add_new_client(telegram_id=callback_query.message.from_user.id)
     
-    await callback_query.message.edit_media(InputMediaPhoto(media=main_photo, caption="Вы успешно зарегистрированы в системе как клиент.\n\nЕсли возникнут проблемы с заказом, обращайтесь в поддержку(/help)"))
+    keyboard_builder = InlineKeyboardBuilder()
+    keyboard_builder.button(text="Посмотреть товары", callback_data="show_products")
+
+    await callback_query.message.edit_media(InputMediaPhoto(media=main_photo, caption="Вы успешно зарегистрированы в системе как клиент.\n\nЕсли возникнут проблемы с заказом, обращайтесь в поддержку(/help)"), reply_markup=keyboard_builder.as_markup())
 
     await state.clear()
 

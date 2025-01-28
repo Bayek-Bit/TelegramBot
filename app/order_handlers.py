@@ -179,10 +179,12 @@ async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
 
     total = await calculate_total(selected_products)
     order_id = await ClientHandler.create_order(callback_query.from_user.id, list(selected_products.keys()))
+
     payment_deadline = datetime.now() + timedelta(minutes=15)
 
     await state.update_data({
         "order_id": order_id,
+        "payment_amount": total,
         "payment_deadline": payment_deadline
     })
 
@@ -209,14 +211,22 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
     """Handle payment confirmation."""
     user_data = await state.get_data()
     order_id = user_data.get("order_id")
+    order_details = await ClientHandler.get_order_details(order_id)
+    payment_amount = user_data.get("payment_amount")
+    payment_deadline = user_data.get("payment_deadline")
 
     if not order_id:
         await state.clear()
         await message.answer("Произошла ошибка. Заказ не найден.\n\nПопробуйте оформить заказ ещё раз или обратитесь в поддержку.")
         return
+    if not order_details:
+        await state.clear()
+        await message.answer("Произошла ошибка. Данные заказа не найдены.\n\nПопробуйте оформить заказ ещё раз или обратитесь в поддержку.")
+        return 
 
     # Pass order_id to handle_executor_interaction
-    await handle_executor_interaction(message, state, order_id=order_id)
+    # product details !!!
+    await handle_executor_interaction(message, state, order_id, order_details, payment_amount, payment_deadline, payment_sender=message.text)
 
 @order_router.message(ProductStates.waiting_for_payment)
 async def wrong_payment_confirmation_message(message: Message, state: FSMContext):
