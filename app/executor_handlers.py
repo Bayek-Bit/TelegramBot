@@ -1,18 +1,28 @@
-# Я думаю лучше всего создавать таску на поиск заказов для исполнителя, поставить лимит 5 и показывать все 5 заказов(или меньше)
-# а исполнитель будет проверять оплату и подтверждать для конкретного чувачка.
+# Истечение оплаты заказа автоматически освобождать исполнителя
 
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from datetime import datetime
 
-from app.database import ExecutorDatabaseHandler
+from app.bot import bot
+
+from app.database import ExecutorDatabaseHandler, ClientDatabaseHandler
+
+from app.keyboards import create_payment_keyboard
 
 
 executor_router = Router()
+ClientHandler = ClientDatabaseHandler()
 ExecutorHandler = ExecutorDatabaseHandler()
 
+
+class ExecutorStates(StatesGroup):
+    working = State()
+    chatting_with_client = State()
+    # for future
+    chatting_with_support = State()
 
 async def handle_executor_interaction(
     message: Message, 
@@ -32,58 +42,66 @@ async def handle_executor_interaction(
     executor_id = await ExecutorHandler.assign_executor_to_order(order_id)
     
     # Отправляем сообщение исполнителю
-    await message.answer(
-        f"Заказ №{order_id} на сумму {payment_amount} руб.\n"
-        f"Продукты:\n{product_list}\n"
-        f"Оплата от: {payment_sender}\n"
-        f"Срок оплаты: {payment_deadline.strftime('%H:%M:%S')}"
+    await bot.send_message(
+        chat_id=executor_id,
+        reply_markup=create_payment_keyboard(order_id=order_details["order_id"]),
+        text=(
+            f"Заказ №{order_id} на сумму {payment_amount} руб.\n"
+            f"Продукты:\n{product_list}\n"
+            f"Оплата от: {payment_sender}\n"
+            f"Срок оплаты: {payment_deadline.strftime('%H:%M:%S')}"
+        )
     )
 
-# @order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+( [А-ЯЁ]\.?){1,2}$"))
-# async def process_payment_confirmation(message: Message, state: FSMContext):
-#     """Обработка сообщения клиента с подтверждением оплаты."""
-#     error_photo = FSInputFile("app\\icons\\something_went_wrong.jfif")
+
+@executor_router.callback_query(F.data.startswith("approve_payment_"))
+async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
+    """Обработка подтверждения оплаты исполнителем."""
+    success_payment_photo = FSInputFile("app\\icons\\success.jfif")
     
-#     user_data = await state.get_data()
-#     order_id = user_data.get("order_id")
+    try:
+        # Извлекаем номер заказа из callback_data
+        order_id = int(callback_query.data.split('_')[-1])
+        
+        # id клиента
+        client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
 
-#     if not order_id:
-#         await message.edit_media(InputMediaPhoto(media=error_photo, caption="Нет активного заказа для подтверждения оплаты."))
-#         return
+        await bot.send_photo(
+            chat_id=client_telegram_id,
+            photo=success_payment_photo,
+            caption="💚Исполнитель подтвердил оплату вашего заказа, ожидайте исполнения.\n\n❗Пожалуйста, не заходите на аккаунт, пока не получите сообщение об исполнении заказа."
+            )
 
-#     client_name = message.text.strip()
+    except Exception as e:
+        await callback_query.answer(f"Ошибка: {str(e)}")
+
+@executor_router.callback_query(F.data.startswith("reject_payment_"))
+async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
+    """Обработка подтверждения оплаты исполнителем."""
+    success_payment_photo = FSInputFile("app\\icons\\success.jfif")
     
-#     # Отправляем сообщение исполнителю
-#     executor_id = await ClientHandler.get_available_executor()
-#     if not executor_id:
-#         await message.edit_media(InputMediaPhoto(media=error_photo, caption="К сожалению, сейчас нет доступных исполнителей. Попробуйте позже."))
-#         return
+    try:
+        # Извлекаем номер заказа из callback_data
+        order_id = int(callback_query.data.split('_')[-1])
+        
+        # id клиента
+        client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
 
-#     # Тут часть кода с хендлерами для исполнителя, это я допишу 26.01
-#     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-#         [InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data=f"approve_payment_{order_id}")],
-#         [InlineKeyboardButton(text="❌ Отклонить оплату", callback_data=f"reject_payment_{order_id}")]
-#     ])
+        await bot.send_photo(
+            chat_id=client_telegram_id,
+            photo=success_payment_photo,
+            caption="💔Исполнитель отклонил оплату вашего заказа.\n\nПожалуйста, свяжитесь с поддержкой."
+            )
 
-#     # Назначение заказа для проверки оплаты, потом только принимает заказ
-#     # ДОПИСАТЬ тут всё завтра.
-#     await message.answer(
-#         f"Оплата от клиента {client_name} поступила. Проверьте перевод и подтвердите, если всё в порядке.",
-#         reply_markup=keyboard
-#     )
+    except Exception as e:
+        await callback_query.answer(f"Ошибка: {str(e)}")
 
+    # order_id = int(callback_query.data.split("_")[1])
 
-# @order_router.callback_query(F.data.startswith("approve_payment_"))
-# async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
-#     """Обработка подтверждения оплаты исполнителем."""
-#     success_payment_photo = FSInputFile("app\\icons\\success.jfif")
-    
-#     order_id = int(callback_query.data.split("_")[1])
-
-#     # Подтверждаем оплату и назначаем заказ исполнителю
-#     await ExecutorDatabaseHandler.assign_executor_to_order(order_id=order_id)
-#     await callback_query.message.edit_media(InputMediaPhoto(media=success_payment_photo, caption="Оплата подтверждена. Заказ назначен исполнителю."))
-#     await state.clear()
+    # # Подтверждаем оплату и назначаем заказ исполнителю
+    # await ExecutorDatabaseHandler.assign_executor_to_order(order_id=order_id)
+    # await callback_query.message.edit_media(InputMediaPhoto(media=success_payment_photo, caption="Оплата подтверждена. Заказ назначен исполнителю."))
+    # await state.clear()
 
 
 # @order_router.callback_query(F.data.startswith("reject_payment_"))

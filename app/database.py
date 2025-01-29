@@ -83,7 +83,7 @@ class ClientDatabaseHandler:
                 """
                 UPDATE orders
                 SET status = 'cancelled'
-                WHERE id = ? AND status = 'pending'
+                WHERE id = ? AND status IN ('pending', 'in_progress')
                 """,
                 (order_id,)
             )
@@ -267,6 +267,19 @@ class ExecutorDatabaseHandler:
     def __init__(self, db_path="app/clients.db"):
         self.db_path = db_path
 
+    async def get_client_telegram_id_by_order_id(self, order_id: int):
+        """Получение telegram id клиента, оформившего заказ."""
+        async with aq.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT client_id FROM orders
+                WHERE id = ?
+                """,
+                (order_id,)
+            )
+            return cursor.fetchone()[0]
+
+    # В целом, не нужно, но пусть будет
     async def get_available_orders(self):
         """Получение всех доступных заказов для исполнения."""
         async with aq.connect(self.db_path) as db:
@@ -317,7 +330,17 @@ class ExecutorDatabaseHandler:
                 )
 
                 await db.commit()
-                return executor_id
+                
+                executor_telegram_id = await db.execute(
+                    """
+                    SELECT telegram_id FROM users
+                    WHERE id = ?
+                    """,
+                    (executor_id,)
+                )
+                executor_telegram_id = await executor_telegram_id.fetchone() # example: (123456789,)
+                executor_telegram_id = executor_telegram_id[0]
+                return executor_telegram_id
             else:
                 return None
 
@@ -721,8 +744,9 @@ if __name__ == "__main__":
 
     async def main():
         clienthlr = ClientDatabaseHandler()
-        a = await clienthlr.get_order_details(20)
-        print(a)
+        execu = ExecutorDatabaseHandler()
+        a = await execu.assign_executor_to_order(37)
+        print(a[0])
         # # Пример автоматического назначения исполнителя
         # assigned_executor = await executor_db.assign_executor_to_order(order_id=1)
         # if assigned_executor:

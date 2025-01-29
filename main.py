@@ -8,16 +8,19 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.bot import bot
+
 #debug
 from test import debug_router
-
-from config import settings
 
 # database
 import app.database as db
 
 # orders
 from app.order_handlers import order_router
+
+# executors
+from app.executor_handlers import executor_router
 
 # keyboards
 import app.keyboards as kb
@@ -58,9 +61,9 @@ async def command_start_handler(message: Message, state: FSMContext) -> None:
 async def agree_to_terms(callback_query: CallbackQuery, state: FSMContext):
     """Обработка согласия нового пользователя на регистрацию."""
     main_photo = FSInputFile("app\\icons\\main_icon.jfif")
-    
+
     # Добавляем нового клиента в базу данных
-    await ClientHandler.add_new_client(telegram_id=callback_query.message.from_user.id)
+    await ClientHandler.add_new_client(telegram_id=callback_query.from_user.id)
     
     keyboard_builder = InlineKeyboardBuilder()
     keyboard_builder.button(text="Посмотреть товары", callback_data="show_products")
@@ -71,12 +74,12 @@ async def agree_to_terms(callback_query: CallbackQuery, state: FSMContext):
 
 
 async def main():
-    bot = Bot(settings.GET_TOKEN["TOKEN"])
     # like skip_updates=True in earlier versions of aiogram
     await bot.delete_webhook(drop_pending_updates=True)
     
     # Подключаем маршруты
     dp.include_router(order_router)
+    dp.include_router(executor_router)
     dp.include_router(debug_router)
 
     # Создаем таблицы
