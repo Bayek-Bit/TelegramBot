@@ -1,17 +1,19 @@
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
 from datetime import datetime
 
 from asyncio import sleep
 
-from app.database import ClientDatabaseHandler
+from app.database import ClientDatabaseHandler, ExecutorDatabaseHandler
 
+# Пока что инициализирую здесь, надо подумать над местом, где лучше расположить функцию
+ExecutorHandler = ExecutorDatabaseHandler()
 
 async def check_payment_timeout(
         order_id: int,
         payment_deadline: datetime,
-        callback_query: CallbackQuery,
+        message: Message,
         state: FSMContext,
         ClientHandler: ClientDatabaseHandler
     ):
@@ -25,7 +27,7 @@ async def check_payment_timeout(
     if payment_status == "waiting_for_payment":
         # Отменяем заказ
         await ClientHandler.cancel_order(order_id=order_id)
-        await callback_query.message.answer(
+        await message.answer(
             "Время для оплаты истекло. Ваш заказ был отменён. "
             "Вы можете сделать новый заказ или обратиться в поддержку."
         )

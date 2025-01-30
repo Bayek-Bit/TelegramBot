@@ -41,6 +41,7 @@ class ProductStates(StatesGroup):
     choosing_category = State()
     choosing_products = State()
     confirm_order = State()
+    waiting_for_email = State()
     waiting_for_payment = State()
 
 async def calculate_total(selected_products):
@@ -169,7 +170,7 @@ async def reset_selected_products(callback_query: CallbackQuery, state: FSMConte
 
 @order_router.callback_query(F.data == "confirm_order")
 async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
-    """Handle order confirmation."""
+    """Handle order confirmation by showing order details and asking for confirmation."""
     user_data = await state.get_data()
     selected_products = user_data.get("selected_products", {})
 
@@ -178,8 +179,51 @@ async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
         return
 
     total = await calculate_total(selected_products)
-    order_id = await ClientHandler.create_order(callback_query.from_user.id, list(selected_products.keys()))
+    
+    product_ids = list(selected_products.keys())
+    product_names = await ClientHandler.get_product_names_by_ids(product_ids)
+    order_summary = "\n".join([
+    f"{product_names[pid]} x {count}" for pid, count in selected_products.items()
+])
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить заказ", callback_data="confirm_order_final")],
+        [InlineKeyboardButton(text="🏠Вернуться", callback_data="show_products")]
+    ])
+
+    await callback_query.message.edit_media(
+        InputMediaPhoto(
+            media=FSInputFile(PRODUCT_ICON),
+            caption=f"Ваш заказ:\n{order_summary}\n\n💎Итого: {total}р.\n\nПодтвердите заказ."
+        ),
+        reply_markup=keyboard
+    )
+    await state.set_state(ProductStates.confirm_order)
+
+@order_router.callback_query(F.data == "confirm_order_final")
+async def request_email(callback_query: CallbackQuery, state: FSMContext):
+    """Ask user for email after order confirmation."""
+    await callback_query.message.edit_media(
+        InputMediaPhoto(
+            media=FSInputFile(PRODUCT_ICON),
+            caption="📧Пожалуйста, укажите email, привязанный к аккаунту."
+        )
+    )
+    await state.set_state(ProductStates.waiting_for_email)
+
+# Регулярное выражение для проверки валидности email
+@order_router.message(ProductStates.waiting_for_email, F.text.regexp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"))
+async def process_email(message: Message, state: FSMContext):
+    """Process user email, store it in state, and send payment details."""
+    await state.update_data({"user_email": message.text})
+    user_data = await state.get_data()
+    selected_products = user_data.get("selected_products", {})
+    if not selected_products:
+        await message.answer("Корзина пуста! Оформите заказ заново.")
+        return
+
+    total = await calculate_total(selected_products)
+    order_id = await ClientHandler.create_order(message.from_user.id, list(selected_products.keys()))
     payment_deadline = datetime.now() + timedelta(minutes=15)
 
     await state.update_data({
@@ -188,23 +232,17 @@ async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
         "payment_deadline": payment_deadline
     })
 
-    await callback_query.message.edit_media(
-        InputMediaPhoto(
-            media=FSInputFile(PAYMENT_ICON),
-            caption=(
-                f"Ваш заказ №{order_id} оформлен. Сумма: {total} руб.\n"
-                "Для оплаты переведите указанную ботом сумму на эти реквизиты:\n"
-                "Карта: 1234 5678 9012 3456\n"
-                "Получатель: Иван Иванов\n"
-                "Банк: ТестБанк\n"
-                f"Время для оплаты: до {payment_deadline.strftime('%H:%M:%S')}\n"
-                "После оплаты укажите Ф.И.О. отправителя. Пример: Иван Иванов И. или Иванов Иван Иванович\n"
-                "Ф.И.О. отправителя нужно исполнителю для подтверждения платежа."
-            )
-        )
+    await message.answer(
+        f"Ваш заказ №{order_id} оформлен. Сумма: {total} руб.\n\n"
+        "Для оплаты переведите указанную сумму на эти реквизиты:\n"
+        "Карта: 1234 5678 9012 3456\n"
+        "Получатель: Иван Иванов\n"
+        "Банк: ТестБанк\n"
+        f"Оплатите до {payment_deadline.strftime('%H:%M:%S')}.\n\n"
+        "После оплаты укажите Ф.И.О. отправителя."
     )
     await state.set_state(ProductStates.waiting_for_payment)
-    create_task(check_payment_timeout(order_id, payment_deadline, callback_query, state, ClientHandler))
+    create_task(check_payment_timeout(order_id, payment_deadline, message, state, ClientHandler))
 
 @order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ](?:[а-яё]+|\.))?$"))
 async def process_payment_confirmation(message: Message, state: FSMContext):
@@ -224,9 +262,12 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
         await message.answer("Произошла ошибка. Данные заказа не найдены.\n\nПопробуйте оформить заказ ещё раз или обратитесь в поддержку.")
         return 
 
-    # Pass order_id to handle_executor_interaction
-    # product details !!!
-    await handle_executor_interaction(message, state, order_id, order_details, payment_amount, payment_deadline, payment_sender=message.text)
+    create_task(handle_executor_interaction(message, state, order_id, order_details, payment_amount, payment_deadline, payment_sender=message.text))
+
+@order_router.message(ProductStates.waiting_for_email)
+async def wrong_email_message(message: Message, state: FSMContext):
+    """Handle incorrect email format."""
+    await message.answer("Пожалуйста, укажите корректный email.")
 
 @order_router.message(ProductStates.waiting_for_payment)
 async def wrong_payment_confirmation_message(message: Message, state: FSMContext):

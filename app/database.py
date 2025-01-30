@@ -127,6 +127,17 @@ class ClientDatabaseHandler:
                 for row in products
             ]
 
+    async def get_product_names_by_ids(self, product_ids: list[int]) -> list[dict]:
+        """Получение информации о товарах по списку их ID."""
+        placeholders = ", ".join("?" for _ in product_ids)  # Создаем плейсхолдеры для всех ID
+        query = f"SELECT id, name FROM products WHERE id IN ({placeholders})"
+        
+        async with aq.connect(self.db_path) as db:  # Открываем подключение
+            async with db.execute(query, product_ids) as cursor:  # Выполняем запрос с плейсхолдерами
+                rows = await cursor.fetchall()
+                return {row[0]: row[1] for row in rows}
+
+    
     async def get_products_by_ids(self, product_ids: list[int]) -> list[dict]:
         """Получение информации о товарах по списку их ID."""
         placeholders = ", ".join("?" for _ in product_ids)  # Создаем плейсхолдеры для всех ID
@@ -277,7 +288,9 @@ class ExecutorDatabaseHandler:
                 """,
                 (order_id,)
             )
-            return cursor.fetchone()[0]
+            telegram_id = await cursor.fetchone()
+            telegram_id = telegram_id[0]
+            return telegram_id
 
     # В целом, не нужно, но пусть будет
     async def get_available_orders(self):
@@ -436,6 +449,17 @@ class ExecutorDatabaseHandler:
                 (issue_id,)
             )
             await db.commit()
+
+    async def free_executor(self, user_id):
+        async with aq.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE users
+                SET is_available = 1
+                WHERE id = ?
+                """,
+                (user_id,)
+            )
 
 class AdminDatabaseHandler:
     def __init__(self, db_path="app/clients.db"):

@@ -1,9 +1,11 @@
-# Истечение оплаты заказа автоматически освобождать исполнителя
+# Запрос кода после отправки email
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.storage.memory import MemoryStorage
+from asyncio import create_task, sleep
 from datetime import datetime
 
 from app.bot import bot
@@ -17,6 +19,10 @@ executor_router = Router()
 ClientHandler = ClientDatabaseHandler()
 ExecutorHandler = ExecutorDatabaseHandler()
 
+SUCCESS_PAYMENT_PHOTO = FSInputFile("app\\icons\\success.jfif")
+ERROR_PHOTO = FSInputFile("app\\icons\\something_went_wrong.jfif")
+
+storage = MemoryStorage()
 
 class ExecutorStates(StatesGroup):
     working = State()
@@ -40,6 +46,21 @@ async def handle_executor_interaction(
     )
 
     executor_id = await ExecutorHandler.assign_executor_to_order(order_id)
+
+    if not executor_id:
+        await bot.send_message(
+                chat_id=message.from_user.id,
+                text="⏳На данный момент все исполнители заняты. Ваш заказ добавлен в очередь."
+        )
+        
+        while not executor_id:
+            await sleep(60) # in seconds. Minute because for now we have only 1 executor.
+            executor_id = await ExecutorHandler.assign_executor_to_order(order_id) 
+        
+        await bot.send_message(
+                chat_id=message.from_user.id,
+                text="✨Исполнитель назначен на ваш заказ.\n\nБудьте на связи."
+            )     
     
     # Отправляем сообщение исполнителю
     await bot.send_message(
@@ -57,20 +78,25 @@ async def handle_executor_interaction(
 @executor_router.callback_query(F.data.startswith("approve_payment_"))
 async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
     """Обработка подтверждения оплаты исполнителем."""
-    success_payment_photo = FSInputFile("app\\icons\\success.jfif")
-    
     try:
+        await state.set_state(ExecutorStates.working)
+        
         # Извлекаем номер заказа из callback_data
         order_id = int(callback_query.data.split('_')[-1])
-        
+
         # id клиента
         client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
 
+        await state.update_data(order_id=order_id)
+        await state.update_data(client_telegram_id=client_telegram_id)
+        data = await state.get_data()
+        print(data)
+
         await bot.send_photo(
             chat_id=client_telegram_id,
-            photo=success_payment_photo,
-            caption="💚Исполнитель подтвердил оплату вашего заказа, ожидайте исполнения.\n\n❗Пожалуйста, не заходите на аккаунт, пока не получите сообщение об исполнении заказа."
-            )
+            photo=SUCCESS_PAYMENT_PHOTO,
+            caption="💚Исполнитель подтвердил оплату вашего заказа.\n\n❗Скоро вам на почту придёт код.\nПожалуйста, отправьте его боту.\nИсполнитель зайдёт на ваш аккаунт и выполнит заказ."
+        )
 
     except Exception as e:
         await callback_query.answer(f"Ошибка: {str(e)}")
@@ -78,48 +104,23 @@ async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
 @executor_router.callback_query(F.data.startswith("reject_payment_"))
 async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
     """Обработка подтверждения оплаты исполнителем."""
-    success_payment_photo = FSInputFile("app\\icons\\success.jfif")
-    
     try:
         # Извлекаем номер заказа из callback_data
         order_id = int(callback_query.data.split('_')[-1])
         
+        await ClientHandler.cancel_order(order_id=order_id)
+
         # id клиента
         client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
 
+        client_state = FSMContext(storage, key=f"user:{client_telegram_id}")
+        await client_state.clear()
+
         await bot.send_photo(
             chat_id=client_telegram_id,
-            photo=success_payment_photo,
+            photo=ERROR_PHOTO,
             caption="💔Исполнитель отклонил оплату вашего заказа.\n\nПожалуйста, свяжитесь с поддержкой."
             )
 
     except Exception as e:
         await callback_query.answer(f"Ошибка: {str(e)}")
-
-    # order_id = int(callback_query.data.split("_")[1])
-
-    # # Подтверждаем оплату и назначаем заказ исполнителю
-    # await ExecutorDatabaseHandler.assign_executor_to_order(order_id=order_id)
-    # await callback_query.message.edit_media(InputMediaPhoto(media=success_payment_photo, caption="Оплата подтверждена. Заказ назначен исполнителю."))
-    # await state.clear()
-
-
-# @order_router.callback_query(F.data.startswith("reject_payment_"))
-# async def reject_payment(callback_query: CallbackQuery, state: FSMContext):
-#     """Обработка отклонения оплаты исполнителем."""
-#     error_photo = FSInputFile("app\\icons\something_went_wrong.jfif")
-    
-#     order_id = int(callback_query.data.split("_")[1])
-
-#     # Отменяем заказ
-#     # часть с исполнителем, переписать
-#     # в заказах есть executor_id, поэтому отправляй сообщение по id.
-#     await ClientHandler.cancel_order(order_id=order_id)
-#     await callback_query.message.edit_text(
-#         "Оплата отклонена. Клиенту отправлено сообщение о необходимости повторного оформления."
-#     )
-#     # Сообщение клиенту
-#     await callback_query.message.edit_media(
-#         InputMediaPhoto(media=error_photo, caption="К сожалению, оплата была отклонена. Пожалуйста, обратитесь в поддержку или проверьте корректность оплаты и попробуйте ещё раз.")
-#     )
-#     await state.clear()
