@@ -1,3 +1,5 @@
+# Дописать получение кода
+
 from aiogram import Router, F
 from aiogram.types import (
     Message,
@@ -43,6 +45,7 @@ class ProductStates(StatesGroup):
     confirm_order = State()
     waiting_for_email = State()
     waiting_for_payment = State()
+    waiting_for_code = State()
 
 async def calculate_total(selected_products):
     """Calculate the total price for selected products."""
@@ -262,7 +265,10 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
         await message.answer("Произошла ошибка. Данные заказа не найдены.\n\nПопробуйте оформить заказ ещё раз или обратитесь в поддержку.")
         return 
 
-    create_task(handle_executor_interaction(message, state, order_id, order_details, payment_amount, payment_deadline, payment_sender=message.text))
+    executor_task = create_task(handle_executor_interaction(message, state, order_id, order_details, payment_amount, payment_deadline, payment_sender=message.text))
+    executor = await executor_task
+    if executor:
+        await state.set_state(ProductStates.waiting_for_code)
 
 @order_router.message(ProductStates.waiting_for_email)
 async def wrong_email_message(message: Message, state: FSMContext):
