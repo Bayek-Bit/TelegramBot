@@ -47,6 +47,7 @@ class ProductStates(StatesGroup):
     waiting_for_email = State()
     waiting_for_payment = State()
     waiting_for_code = State()
+    waiting_for_order_complete = State()
 
 async def calculate_total(selected_products):
     """Calculate the total price for selected products."""
@@ -171,7 +172,7 @@ async def reset_selected_products(callback_query: CallbackQuery, state: FSMConte
         ),
         reply_markup=callback_query.message.reply_markup
     )
-
+# Confirming order
 @order_router.callback_query(F.data == "confirm_order")
 async def finalize_order(callback_query: CallbackQuery, state: FSMContext):
     """Handle order confirmation by showing order details and asking for confirmation."""
@@ -215,7 +216,7 @@ async def request_email(callback_query: CallbackQuery, state: FSMContext):
     )
     await state.set_state(ProductStates.waiting_for_email)
 
-# Регулярное выражение для проверки валидности email
+# Sending email
 @order_router.message(ProductStates.waiting_for_email, F.text.regexp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"))
 async def process_email(message: Message, state: FSMContext):
     """Process user email, store it in state, and send payment details."""
@@ -247,7 +248,7 @@ async def process_email(message: Message, state: FSMContext):
     )
     await state.set_state(ProductStates.waiting_for_payment)
     create_task(check_payment_timeout(order_id, payment_deadline, message, state, ClientHandler))
-
+# Checking payment
 @order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ](?:[а-яё]+|\.))?$"))
 async def process_payment_confirmation(message: Message, state: FSMContext):
     """Handle payment confirmation."""
@@ -272,6 +273,16 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
         await state.update_data({"executor_id": executor})
         await state.set_state(ProductStates.waiting_for_code)
 
+@order_router.message(ProductStates.waiting_for_email)
+async def wrong_email_message(message: Message, state: FSMContext):
+    """Handle incorrect email format."""
+    await message.answer("Пожалуйста, укажите корректный email.")
+
+@order_router.message(ProductStates.waiting_for_payment)
+async def wrong_payment_confirmation_message(message: Message, state: FSMContext):
+    """Handle incorrect payment confirmation format."""
+    await message.answer("Пожалуйста, в сообщении укажите только Ф.И.О. по примеру, приведённому в сообщении с реквизитами.")
+# Code from email
 @order_router.message(ProductStates.waiting_for_code)
 async def get_code(message: Message, state: FSMContext):
     """Getting code from user"""
@@ -283,13 +294,5 @@ async def get_code(message: Message, state: FSMContext):
         text=f"Код: `{message.text}`",
         parse_mode="MARKDOWN"
     )
-
-@order_router.message(ProductStates.waiting_for_email)
-async def wrong_email_message(message: Message, state: FSMContext):
-    """Handle incorrect email format."""
-    await message.answer("Пожалуйста, укажите корректный email.")
-
-@order_router.message(ProductStates.waiting_for_payment)
-async def wrong_payment_confirmation_message(message: Message, state: FSMContext):
-    """Handle incorrect payment confirmation format."""
-    await message.answer("Пожалуйста, в сообщении укажите только Ф.И.О. по примеру, приведённому в сообщении с реквизитами.")
+    await state.set_state(ProductStates.waiting_for_order_complete())
+    await message.answer("💚Код отправлен исполнителю.\n\n❗Не заходите на аккаунт, пока не получите сообщение об исполнении заказа.")

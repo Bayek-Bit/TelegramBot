@@ -356,7 +356,7 @@ class ExecutorDatabaseHandler:
                 return executor_telegram_id
             else:
                 return None
-    async def mark_order_as_canceled(self, order_id: int, executor_id: int):
+    async def mark_order_as_canceled(self, order_id: int):
         """Отмена заказа клиента исполнителем. Освобождает исполнителя от заказа."""
         async with aq.connect(self.db_path) as db:
             await db.execute(
@@ -367,14 +367,26 @@ class ExecutorDatabaseHandler:
                 """,
                 (order_id,)
             )
-            await db.execute(
+            # Получение исполнителя, назначенного на заказ
+            cursor = await db.execute(
                 """
-                UPDATE users
-                SET is_available = 1
+                SELECT executor_id FROM orders
                 WHERE id = ?
                 """,
-                (executor_id,)
+                (order_id,)
             )
+            executor = await cursor.fetchone()
+
+            if executor:
+                executor_id = executor[0]
+                await db.execute(
+                    """
+                    UPDATE users
+                    SET is_available = 1
+                    WHERE id = ?
+                    """,
+                    (executor_id,)
+                )
             await db.commit()
 
     async def mark_order_as_completed(self, order_id: int):

@@ -1,5 +1,3 @@
-# Запрос кода после отправки email
-
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
@@ -95,7 +93,7 @@ async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
         await bot.send_photo(
             chat_id=client_telegram_id,
             photo=SUCCESS_PAYMENT_PHOTO,
-            caption="💚Исполнитель подтвердил оплату вашего заказа.\n\n❗Скоро вам на почту придёт код.\nПожалуйста, отправьте его боту.\nИсполнитель зайдёт на ваш аккаунт и выполнит заказ."
+            caption="💚Исполнитель подтвердил оплату вашего заказа.\n\n❗Скоро вам на почту придёт код.\n\nПожалуйста, отправьте его боту.\nИсполнитель зайдёт на ваш аккаунт и выполнит заказ."
         )
 
     except Exception as e:
@@ -108,7 +106,7 @@ async def reject_payment(callback_query: CallbackQuery, state: FSMContext):
         # Извлекаем номер заказа из callback_data
         order_id = int(callback_query.data.split('_')[-1])
         
-        await ExecutorHandler.mark_order_as_canceled(order_id=order_id, executor_id=callback_query.from_user.id)
+        await ExecutorHandler.mark_order_as_canceled(order_id=order_id)
 
         # id клиента
         client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
@@ -123,3 +121,10 @@ async def reject_payment(callback_query: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         await callback_query.answer(f"Ошибка: {str(e)}")
+
+@executor_router.callback_query(F.data == "complete_order")
+async def complete_order(callback_query: CallbackQuery, state: FSMContext):
+    user_data = await state.get_data()
+    order_id = user_data.get("order_id")
+
+    await ExecutorHandler.mark_order_as_completed(order_id)
