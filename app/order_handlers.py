@@ -17,6 +17,7 @@ import re
 import locale
 
 # Local Modules
+from app.bot import bot
 from app.database import ClientDatabaseHandler
 from app.keyboards import create_categories_keyboard, create_products_keyboard
 from app.payment import check_payment_timeout
@@ -268,7 +269,20 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
     executor_task = create_task(handle_executor_interaction(message, state, order_id, order_details, payment_amount, payment_deadline, payment_sender=message.text))
     executor = await executor_task
     if executor:
+        await state.update_data({"executor_id": executor})
         await state.set_state(ProductStates.waiting_for_code)
+
+@order_router.message(ProductStates.waiting_for_code)
+async def get_code(message: Message, state: FSMContext):
+    """Getting code from user"""
+    user_data = await state.get_data()
+    executor_chat_id = user_data.get("executor_id")
+    
+    await bot.send_message(
+        chat_id=executor_chat_id,
+        text=f"Код: `{message.text}`",
+        parse_mode="MARKDOWN"
+    )
 
 @order_router.message(ProductStates.waiting_for_email)
 async def wrong_email_message(message: Message, state: FSMContext):

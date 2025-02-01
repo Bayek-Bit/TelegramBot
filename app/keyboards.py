@@ -27,3 +27,8 @@ def create_payment_keyboard(order_id: int):
     payment_kb.button(text="⛔Отклонить оплату", callback_data=f"reject_payment_{order_id}")
     payment_kb.adjust(1)
     return payment_kb.as_markup()
+
+def create_finish_order_keyboard():
+    """Создание клавиатуры для подтверждения выполнения заказа"""
+    finish_order_kb = InlineKeyboardBuilder()
+    finish_order_kb.button("✅Заказ выполнен", callback_data="complete_order")

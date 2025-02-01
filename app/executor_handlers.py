@@ -59,8 +59,7 @@ async def handle_executor_interaction(
         await bot.send_message(
                 chat_id=message.from_user.id,
                 text="✨Исполнитель назначен на ваш заказ."
-            )
-        return "Assigned"     
+            )   
     
     # Отправляем сообщение исполнителю
     await bot.send_message(
@@ -73,6 +72,7 @@ async def handle_executor_interaction(
             f"Срок оплаты: {payment_deadline.strftime('%H:%M:%S')}"
         )
     )
+    return executor_id 
 
 
 @executor_router.callback_query(F.data.startswith("approve_payment_"))
@@ -90,6 +90,8 @@ async def approve_payment(callback_query: CallbackQuery, state: FSMContext):
         await state.update_data(order_id=order_id)
         await state.update_data(client_telegram_id=client_telegram_id)
 
+        await callback_query.answer()
+
         await bot.send_photo(
             chat_id=client_telegram_id,
             photo=SUCCESS_PAYMENT_PHOTO,
@@ -106,10 +108,12 @@ async def reject_payment(callback_query: CallbackQuery, state: FSMContext):
         # Извлекаем номер заказа из callback_data
         order_id = int(callback_query.data.split('_')[-1])
         
-        await ClientHandler.cancel_order(order_id=order_id)
+        await ExecutorHandler.mark_order_as_canceled(order_id=order_id, executor_id=callback_query.from_user.id)
 
         # id клиента
         client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
+
+        await callback_query.answer()
 
         await bot.send_photo(
             chat_id=client_telegram_id,

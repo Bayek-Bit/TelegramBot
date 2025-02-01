@@ -77,7 +77,7 @@ class ClientDatabaseHandler:
             ]
 
     async def cancel_order(self, order_id: int):
-        """Отмена заказа клиента."""
+        """Отмена заказа клиента(вызывается, если клиент не успевает оплатить)"""
         async with aq.connect(self.db_path) as db:
             await db.execute(
                 """
@@ -356,6 +356,26 @@ class ExecutorDatabaseHandler:
                 return executor_telegram_id
             else:
                 return None
+    async def mark_order_as_canceled(self, order_id: int, executor_id: int):
+        """Отмена заказа клиента исполнителем. Освобождает исполнителя от заказа."""
+        async with aq.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE orders
+                SET status = 'cancelled'
+                WHERE id = ? AND status IN ('pending', 'in_progress')
+                """,
+                (order_id,)
+            )
+            await db.execute(
+                """
+                UPDATE users
+                SET is_available = 1
+                WHERE id = ?
+                """,
+                (executor_id,)
+            )
+            await db.commit()
 
     async def mark_order_as_completed(self, order_id: int):
         """Завершение заказа и освобождение исполнителя."""
