@@ -1,5 +1,9 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+show_products_kb = InlineKeyboardBuilder()
+show_products_kb.button(text="Посмотреть товары", callback_data="show_products")
+show_products_kb = show_products_kb.as_markup()
+
 def create_categories_keyboard(categories):
     """Создание клавиатуры с категориями."""
     keyboard_builder = InlineKeyboardBuilder()
@@ -31,4 +35,9 @@ def create_payment_keyboard(order_id: int):
 def create_finish_order_keyboard():
     """Создание клавиатуры для подтверждения выполнения заказа"""
     finish_order_kb = InlineKeyboardBuilder()
-    finish_order_kb.button("✅Заказ выполнен", callback_data="complete_order")
+    finish_order_kb.button(text="✅Заказ выполнен", callback_data="complete_order")
+    return finish_order_kb.as_markup()
+
+show_menu_kb = InlineKeyboardBuilder()
+show_menu_kb.button(text="🏠 Главная", callback_data="home")
+show_menu_kb = show_menu_kb.as_markup()

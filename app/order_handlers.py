@@ -19,7 +19,7 @@ import locale
 # Local Modules
 from app.bot import bot
 from app.database import ClientDatabaseHandler
-from app.keyboards import create_categories_keyboard, create_products_keyboard
+from app.keyboards import create_categories_keyboard, create_products_keyboard, create_finish_order_keyboard, show_products_kb
 from app.payment import check_payment_timeout
 from app.executor_handlers import handle_executor_interaction
 
@@ -31,10 +31,12 @@ except locale.Error:
 
 # Constants for file paths
 ICONS_PATH = "app/icons/"
+MAIN_ICON = f"{ICONS_PATH}main_icon.jfif"
 SHOW_CATEGORIES_ICON = f"{ICONS_PATH}main_icon1.jfif"
 ERROR_ICON = f"{ICONS_PATH}something_went_wrong.jfif"
 PRODUCT_ICON = f"{ICONS_PATH}bonny.jfif"
 PAYMENT_ICON = f"{ICONS_PATH}payment.jfif"
+SUCCESS_ICON = f"{ICONS_PATH}success.jfif"
 
 order_router = Router()
 ClientHandler = ClientDatabaseHandler()
@@ -292,7 +294,20 @@ async def get_code(message: Message, state: FSMContext):
     await bot.send_message(
         chat_id=executor_chat_id,
         text=f"Код: `{message.text}`",
-        parse_mode="MARKDOWN"
+        parse_mode="MARKDOWN",
+        reply_markup=create_finish_order_keyboard()
     )
-    await state.set_state(ProductStates.waiting_for_order_complete())
-    await message.answer("💚Код отправлен исполнителю.\n\n❗Не заходите на аккаунт, пока не получите сообщение об исполнении заказа.")
+    await state.set_state(ProductStates.waiting_for_order_complete)
+    await message.answer("💚 Заказ в обработке.\n\n❗ Не заходите на аккаунт, пока не получите сообщение об исполнении заказа.")
+
+@order_router.callback_query(ProductStates.waiting_for_order_complete, F.data == "home")
+async def go_home(callback_query: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await state.set_data({})
+    await callback_query.message.edit_media(
+        media=InputMediaPhoto(
+            media=FSInputFile(MAIN_ICON),
+            caption="🤍 Привет\n\nЗдесь ты можешь быстро закинуть гемчиков(и не только) на свой аккаунт.", reply_markup=show_products_kb
+        ),
+        reply_markup=show_products_kb
+    )

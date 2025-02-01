@@ -9,7 +9,7 @@ from app.bot import bot
 
 from app.database import ExecutorDatabaseHandler, ClientDatabaseHandler
 
-from app.keyboards import create_payment_keyboard
+from app.keyboards import create_payment_keyboard, show_menu_kb
 
 
 executor_router = Router()
@@ -46,7 +46,7 @@ async def handle_executor_interaction(
     if not executor_id:
         await bot.send_message(
                 chat_id=message.from_user.id,
-                text="⏳На данный момент все исполнители заняты. Ваш заказ добавлен в очередь."
+                text="⏳На данный момент все исполнители заняты.\n\nВаш заказ добавлен в очередь."
         )
         
         # После уловных 10 попыток отменять заказ и просить создать позже.
@@ -128,3 +128,15 @@ async def complete_order(callback_query: CallbackQuery, state: FSMContext):
     order_id = user_data.get("order_id")
 
     await ExecutorHandler.mark_order_as_completed(order_id)
+
+    client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
+    await bot.send_photo(
+        chat_id=client_telegram_id,
+        photo=SUCCESS_PAYMENT_PHOTO,
+        caption=f"⭐️ Заказ №{order_id} - Исполнен ⭐️",
+        reply_markup=show_menu_kb
+    )
+
+    await callback_query.message.edit_text(f"🔰 Заказ №{order_id} - Выполнен")
+    await state.clear()
+    await state.set_data({})
