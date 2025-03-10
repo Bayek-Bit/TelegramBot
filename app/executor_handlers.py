@@ -64,10 +64,10 @@ async def handle_executor_interaction(
         chat_id=executor_id,
         reply_markup=create_payment_keyboard(order_id=order_details["order_id"]),
         text=(
-            f"Заказ №{order_id} на сумму {payment_amount} руб.\n"
-            f"Продукты:\n{product_list}\n"
-            f"Оплата от: {payment_sender}\n"
-            f"Срок оплаты: {payment_deadline.strftime('%H:%M:%S')}"
+            f"🔄 Заказ №{order_id} на сумму {payment_amount} руб.\n"
+            f"📦 Продукты:\n{product_list}\n"
+            f"👤 Оплата от: {payment_sender}\n"
+            f"⏳ Срок оплаты: {payment_deadline.strftime('%H:%M:%S')}"
         )
     )
     return executor_id 
@@ -122,6 +122,25 @@ async def reject_payment(callback_query: CallbackQuery, state: FSMContext):
     except Exception as e:
         await callback_query.answer(f"Ошибка: {str(e)}")
 
+@executor_router.callback_query(F.data.startswith("message_client_"))
+async def message_to_client(callback_query: CallbackQuery, state: FSMContext):
+    """Обработка общения исполнителя и клиента через бота"""
+    try:
+        await state.set_state(ExecutorStates.working)
+        
+        # Извлекаем номер заказа из callback_data
+        order_id = int(callback_query.data.split('_')[-1])
+
+        # id клиента
+        client_telegram_id = await ExecutorHandler.get_client_telegram_id_by_order_id(order_id=order_id)
+
+        await state.update_data(order_id=order_id)
+        await state.update_data(client_telegram_id=client_telegram_id)
+
+        await callback_query.answer()
+    except Exception as ex:
+        await callback_query.answer(f"Error: {ex}")
+
 @executor_router.callback_query(F.data == "complete_order")
 async def complete_order(callback_query: CallbackQuery, state: FSMContext):
     user_data = await state.get_data()
@@ -140,3 +159,4 @@ async def complete_order(callback_query: CallbackQuery, state: FSMContext):
     await callback_query.message.edit_text(f"🔰 Заказ №{order_id} - Выполнен")
     await state.clear()
     await state.set_data({})
+

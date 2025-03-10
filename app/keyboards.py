@@ -27,9 +27,10 @@ def create_products_keyboard(products):
 def create_payment_keyboard(order_id: int):
     """Создание клавиатуры с подтверждением оплаты"""
     payment_kb = InlineKeyboardBuilder()
-    payment_kb.button(text="💚Подтвердить оплату", callback_data=f"approve_payment_{order_id}")
-    payment_kb.button(text="⛔Отклонить оплату", callback_data=f"reject_payment_{order_id}")
-    payment_kb.adjust(1)
+    payment_kb.button(text="💚 Подтвердить оплату", callback_data=f"approve_payment_{order_id}")
+    payment_kb.button(text="⛔ Отклонить оплату", callback_data=f"reject_payment_{order_id}")
+    payment_kb.button(text="✉️ Написать клиенту", callback_data=f"message_client_{order_id}")
+    payment_kb.adjust(2, 1)
     return payment_kb.as_markup()
 
 def create_finish_order_keyboard():

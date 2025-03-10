@@ -289,22 +289,20 @@ class ExecutorDatabaseHandler:
                 (order_id,)
             )
             telegram_id = await cursor.fetchone()
-            telegram_id = telegram_id[0]
-            return telegram_id
+            return telegram_id[0] if telegram_id else None
 
-    # В целом, не нужно, но пусть будет
     async def get_available_orders(self):
         """Получение всех доступных заказов для исполнения."""
         async with aq.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                SELECT o.id, o.client_id, o.product_ids, o.status, o.created_at
-                FROM orders o
-                WHERE o.status = 'pending'
-                ORDER BY o.created_at ASC
+                SELECT id, client_id, product_ids, status, created_at
+                FROM orders
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
                 """
             )
-            orders = await cursor.fetchall()
+            return await cursor.fetchall()
 
     async def assign_executor_to_order(self, order_id: int):
         """Автоматическое назначение свободного исполнителя на заказ."""
@@ -598,6 +596,21 @@ async def create_tables():
         )
         """)
 
+        # Таблица исполнителей
+        await db.execute("""
+            CREATE TABLE executors (
+                id SERIAL PRIMARY KEY,
+                telegram_id INTEGER,
+                status VARCHAR(20) NOT NULL DEFAULT 'inactive',
+                current_order_id INTEGER REFERENCES orders(id),
+                last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                performance_rating FLOAT DEFAULT 0.0,
+                total_orders INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CHECK (status IN ('active', 'busy', 'inactive', 'paused'))
+            )
+        """)
+        
         # Таблица товаров
         await db.execute("""
             CREATE TABLE IF NOT EXISTS products (

@@ -37,6 +37,7 @@ ERROR_ICON = f"{ICONS_PATH}something_went_wrong.jfif"
 PRODUCT_ICON = f"{ICONS_PATH}bonny.jfif"
 PAYMENT_ICON = f"{ICONS_PATH}payment.jfif"
 SUCCESS_ICON = f"{ICONS_PATH}success.jfif"
+KEYBOARD_ICON = f"{ICONS_PATH}keyboard.jfif"
 
 order_router = Router()
 ClientHandler = ClientDatabaseHandler()
@@ -250,6 +251,12 @@ async def process_email(message: Message, state: FSMContext):
     )
     await state.set_state(ProductStates.waiting_for_payment)
     create_task(check_payment_timeout(order_id, payment_deadline, message, state, ClientHandler))
+
+@order_router.message(ProductStates.waiting_for_email)
+async def wrong_email_message(message: Message, state: FSMContext):
+    """Handle incorrect email format."""
+    await message.answer("Пожалуйста, укажите корректный email.")
+
 # Checking payment
 @order_router.message(ProductStates.waiting_for_payment, F.text.regexp(r"^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ](?:[а-яё]+|\.))?$"))
 async def process_payment_confirmation(message: Message, state: FSMContext):
@@ -273,12 +280,11 @@ async def process_payment_confirmation(message: Message, state: FSMContext):
     executor = await executor_task
     if executor:
         await state.update_data({"executor_id": executor})
+        await message.answer_photo(
+            FSInputFile(KEYBOARD_ICON),
+            caption="💛 Заказ в обработке.\n\n❗Пожалуйста, ничего не пишите боту, пока вам не придёт сообщение об отправленном коде"
+        )
         await state.set_state(ProductStates.waiting_for_code)
-
-@order_router.message(ProductStates.waiting_for_email)
-async def wrong_email_message(message: Message, state: FSMContext):
-    """Handle incorrect email format."""
-    await message.answer("Пожалуйста, укажите корректный email.")
 
 @order_router.message(ProductStates.waiting_for_payment)
 async def wrong_payment_confirmation_message(message: Message, state: FSMContext):
